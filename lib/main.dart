@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/notification_screen.dart';
+import 'screens/groups_screen.dart';
+import 'screens/initial_setup_screen.dart';
+import 'screens/analytics_screen.dart';
+import 'screens/login_screen.dart';
 
 void main() {
   runApp(
