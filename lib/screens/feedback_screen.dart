@@ -10,7 +10,6 @@ class FeedbackScreen extends StatefulWidget {
 
 class _FeedbackScreenState extends State<FeedbackScreen> {
   int _selectedCategoryIndex = 0;
-  int _rating = 5;
 
   final TextEditingController _feedbackController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -71,10 +70,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             const Text(
               'Thank you for helping us improve our app.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Color(0xFF64748B),
-                fontSize: 14,
-              ),
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
             ),
             const SizedBox(height: 28),
             SizedBox(
@@ -116,7 +112,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. TOP GREEN GRADIENT HEADER (Matching exact style from image)
+            // 1. TOP GREEN GRADIENT HEADER
             Container(
               width: double.infinity,
               padding: EdgeInsets.only(
@@ -149,7 +145,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       width: 42,
                       height: 42,
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.25),
+                        color: Colors.black.withValues(alpha: 0.25),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -177,7 +173,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   Text(
                     'We\'d love to hear your thoughts & suggestions',
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.85),
+                      color: Colors.white.withValues(alpha: 0.85),
                       fontSize: 14,
                       fontWeight: FontWeight.w400,
                     ),
@@ -194,122 +190,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // SECTION 1: EXPERIENCE RATING CARD (Matches password card layout)
-                  const Text(
-                    'Share Your Experience',
-                    style: TextStyle(
-                      color: Color(0xFF0F172A),
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFF1F5F9)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.03),
-                          blurRadius: 16,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        // Soft Green Icon Container
-                        Container(
-                          width: 48,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFDCFCE7),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            CupertinoIcons.star_fill,
-                            color: Color(0xFF15803D),
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-
-                        // Info Text
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'RATING',
-                                style: TextStyle(
-                                  color: Color(0xFF0F172A),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 1.0,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                children: List.generate(5, (index) {
-                                  final starVal = index + 1;
-                                  return GestureDetector(
-                                    onTap: () {
-                                      setState(() {
-                                        _rating = starVal;
-                                      });
-                                    },
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(right: 2.0),
-                                      child: Icon(
-                                        starVal <= _rating
-                                            ? CupertinoIcons.star_fill
-                                            : CupertinoIcons.star,
-                                        color: starVal <= _rating
-                                            ? const Color(0xFFEAB308)
-                                            : const Color(0xFFCBD5E1),
-                                        size: 18,
-                                      ),
-                                    ),
-                                  );
-                                }),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Score Badge Pill
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: const Color(0xFF15803D),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Text(
-                            '$_rating / 5',
-                            style: const TextStyle(
-                              color: Color(0xFF15803D),
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 28),
-
-                  // SECTION 2: CATEGORY SELECTION
+                  // SECTION 1: CATEGORY SELECTION
                   const Text(
                     'Feedback Category',
                     style: TextStyle(
@@ -367,7 +248,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                   const SizedBox(height: 28),
 
-                  // SECTION 3: MESSAGE INPUT CARD
+                  // SECTION 2: MESSAGE INPUT CARD
                   const Text(
                     'Your Message',
                     style: TextStyle(
@@ -386,7 +267,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
+                          color: Colors.black.withValues(alpha: 0.02),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
@@ -415,7 +296,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                   const SizedBox(height: 20),
 
-                  // SECTION 4: EMAIL ADDRESS (OPTIONAL)
+                  // SECTION 3: EMAIL ADDRESS (OPTIONAL)
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -423,7 +304,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       border: Border.all(color: const Color(0xFFE2E8F0)),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.02),
+                          color: Colors.black.withValues(alpha: 0.02),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
@@ -458,7 +339,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                   const SizedBox(height: 32),
 
-                  // SUBMIT BUTTON (Matching deep green accent)
+                  // SUBMIT BUTTON
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
