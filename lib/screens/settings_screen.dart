@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import '../screens/security_settings_screen.dart';
+import '../screens/terms_and_privacy_screen.dart';
+import '../screens/profile_overview_screen.dart';
+import '../screens/feedback_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import 'change_password_screen.dart';
+import '../screens/change_password_screen.dart';
 
 class SecuritySettingsScreen extends StatelessWidget {
   const SecuritySettingsScreen({super.key});
