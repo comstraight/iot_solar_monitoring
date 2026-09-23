@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "191347874730",
+    "project_id": "solarmonitoringsystem-53551",
+    "storage_bucket": "solarmonitoringsystem-53551.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:191347874730:android:9756b705088388d60669d3",
+        "android_client_info": {
+          "package_name": "com.example.my_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDih0Dw5SxBu11YAoUA5dWQxzkgB5jhwRg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
