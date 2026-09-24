@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class InitialSetupScreen extends StatefulWidget {
   const InitialSetupScreen({super.key});
@@ -15,6 +17,41 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
   static const Color pageBg = Color(0xFFF8FAF8);
 
   bool _isConfiguring = false;
+
+  // Helper SnackBar for visual feedback
+  void _showSnackBar(
+    BuildContext context,
+    String message, {
+    bool isError = false,
+  }) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.redAccent.shade700 : darkGreen,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Row(
+          children: [
+            Icon(
+              isError
+                  ? Icons.error_outline_rounded
+                  : Icons.check_circle_rounded,
+              color: isError ? Colors.white : Colors.greenAccent,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _showAddPanelWizard(BuildContext context) {
     final formKey = GlobalKey<FormState>();
@@ -94,7 +131,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                   _buildModernTextField(
                     controller: nodeIdController,
                     label: 'Microcontroller Node ID',
-                    hint: 'e.g., ESP32_NODE_03',
+                    hint: 'e.g., SOLAR-3C71BF',
                     icon: Icons.developer_board_rounded,
                     validator: (val) => val == null || val.trim().isEmpty
                         ? 'Enter hardware Device ID'
@@ -115,41 +152,109 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      onPressed: () {
+                      onPressed: () async {
                         if (formKey.currentState!.validate()) {
-                          Navigator.pop(context);
+                          final String? currentUid =
+                              FirebaseAuth.instance.currentUser?.uid;
+
+                          if (currentUid == null) {
+                            _showSnackBar(
+                              context,
+                              'You must be logged in to claim a device.',
+                              isError: true,
+                            );
+                            return;
+                          }
+
+                          final String panelName = panelNameController.text
+                              .trim();
+                          final String capacity = capacityController.text
+                              .trim();
+                          final String nodeId = nodeIdController.text
+                              .trim()
+                              .toUpperCase();
+
+                          Navigator.pop(context); // Close bottom sheet
                           setState(() {
                             _isConfiguring = true;
                           });
 
-                          Future.delayed(const Duration(seconds: 2), () {
+                          try {
+                            // 1. Check if the device exists in Firestore `devices` collection
+                            final deviceRef = FirebaseFirestore.instance
+                                .collection('devices')
+                                .doc(nodeId);
+                            final docSnap = await deviceRef.get();
+
+                            if (!docSnap.exists) {
+                              if (mounted) {
+                                _showSnackBar(
+                                  context,
+                                  'Device ID "$nodeId" not found. Make sure the ESP32 is powered on!',
+                                  isError: true,
+                                );
+                              }
+                              return;
+                            }
+
+                            final data = docSnap.data();
+                            final existingOwner = data?['owner_uid'] ?? '';
+
+                            // 2. Check if device is already claimed by another user
+                            if (existingOwner.isNotEmpty &&
+                                existingOwner != currentUid) {
+                              if (mounted) {
+                                _showSnackBar(
+                                  context,
+                                  'This device is already linked to another account.',
+                                  isError: true,
+                                );
+                              }
+                              return;
+                            }
+
+                            // 3. Claim device in `devices` collection
+                            await deviceRef.set({
+                              'owner_uid': currentUid,
+                              'device_code': nodeId,
+                              'claimed_at': FieldValue.serverTimestamp(),
+                            }, SetOptions(merge: true));
+
+                            // 4. Save linked panel under User's profile (`users/{uid}/panels/{nodeId}`)
+                            await FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(currentUid)
+                                .collection('panels')
+                                .doc(nodeId)
+                                .set({
+                                  'node_id': nodeId,
+                                  'name': panelName,
+                                  'capacity': '$capacity Watts',
+                                  'linked_at': FieldValue.serverTimestamp(),
+                                  'status': 'Online',
+                                });
+
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  behavior: SnackBarBehavior.floating,
-                                  backgroundColor: darkGreen,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  content: const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.check_circle,
-                                        color: Colors.greenAccent,
-                                      ),
-                                      SizedBox(width: 12),
-                                      Text(
-                                        'Solar Hardware Linked Successfully!',
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                              _showSnackBar(
+                                context,
+                                'Solar Hardware Linked Successfully!',
                               );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              _showSnackBar(
+                                context,
+                                'Error claiming device: $e',
+                                isError: true,
+                              );
+                            }
+                          } finally {
+                            if (mounted) {
                               setState(() {
                                 _isConfiguring = false;
                               });
                             }
-                          });
+                          }
                         }
                       },
                       child: const Text(
@@ -217,7 +322,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
       backgroundColor: pageBg,
       body: Stack(
         children: [
-          // ==================== 1. GREEN HERO HEADER (BACKGROUND DESIGN) ====================
+          // ==================== 1. GREEN HERO HEADER ====================
           Container(
             width: double.infinity,
             height: 250,
@@ -369,12 +474,14 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
     );
   }
 
-  // --- MAIN SETUP STATE ---
+  // --- MAIN SETUP STATE (DYNAMICALLY STREAMS CLAIMED HARDWARE) ---
   Widget _buildSetupState(BuildContext context) {
+    final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+
     return Column(
       key: const ValueKey('setup'),
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.start, // Fixed alignment
+      mainAxisAlignment: MainAxisAlignment.start,
       children: [
         Text(
           'CONNECTED SOLAR PANELS',
@@ -387,22 +494,69 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
         ),
         const SizedBox(height: 12),
 
-        _buildPanelNodeTile(
-          id: 'SOLAR-01',
-          name: 'Roof Array - Panel 1',
-          capacity: '300W Capacity',
-          nodeId: 'ESP32_NODE_01',
-        ),
-        const SizedBox(height: 10),
+        // Live stream of panels claimed by the logged-in user
+        StreamBuilder<QuerySnapshot>(
+          stream: currentUid != null
+              ? FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(currentUid)
+                    .collection('panels')
+                    .snapshots()
+              : null,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(color: midGreen),
+                ),
+              );
+            }
 
-        _buildPanelNodeTile(
-          id: 'SOLAR-02',
-          name: 'Roof Array - Panel 2',
-          capacity: '300W Capacity',
-          nodeId: 'ESP32_NODE_02',
+            final docs = snapshot.data?.docs ?? [];
+
+            if (docs.isEmpty) {
+              return Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEEEEEE),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Center(
+                  child: Text(
+                    'No hardware linked yet. Tap "Add A Setup" below to claim an ESP32 node.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Column(
+              children: docs.map((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _buildPanelNodeTile(
+                    id: doc.id,
+                    name: data['name'] ?? 'Solar Panel',
+                    capacity: data['capacity'] ?? '300W Capacity',
+                    nodeId: data['node_id'] ?? doc.id,
+                    status: data['status'] ?? 'Online',
+                  ),
+                );
+              }).toList(),
+            );
+          },
         ),
 
-        const SizedBox(height: 16), // Tightened spacing
+        const SizedBox(height: 16),
 
         Container(
           width: double.infinity,
@@ -430,6 +584,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
     required String name,
     required String capacity,
     required String nodeId,
+    String status = 'Online',
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -462,7 +617,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$id • $nodeId • $capacity',
+                  '$nodeId • $capacity',
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.grey.shade600,
@@ -472,9 +627,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
               ],
             ),
           ),
-          const Text(
-            'Online',
-            style: TextStyle(
+          Text(
+            status,
+            style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.bold,
               color: midGreen,

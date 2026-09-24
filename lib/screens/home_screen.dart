@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import '../screens/analytics_screen.dart';
-import '../screens/initial_setup_screen.dart';
-import '../screens/groups_screen.dart';
-import '../screens/settings_screen.dart';
-import '../screens/login_screen.dart';
-import '../screens/notification_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // ADDED: Cloud Firestore
+import 'package:firebase_auth/firebase_auth.dart'; // ADDED: For logout support
+import 'login_screen.dart'; // ADDED: For logout navigation
 
 class HomeScreen extends StatefulWidget {
   final int currentPercentage;
@@ -37,213 +34,271 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final List<String> filterOptions = ['View All', 'Home 1', 'Home 2', 'Work'];
 
+  // ADDED: Stream to listen to real-time Firestore telemetry updates
+  final Stream<DocumentSnapshot> _telemetryStream = FirebaseFirestore.instance
+      .collection('system_status')
+      .doc('current')
+      .snapshots();
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      drawer: _buildSideMenu(context),
-      appBar: appBar(),
-      body: Container(
-        decoration: const BoxDecoration(color: Colors.white),
-        child: ListView(
-          children: [
-            topDashboard(),
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+    return StreamBuilder<DocumentSnapshot>(
+      stream: _telemetryStream,
+      builder: (context, snapshot) {
+        // Extract live telemetry values with fallback defaults
+        final Map<String, dynamic> data =
+            (snapshot.hasData && snapshot.data!.data() != null)
+            ? snapshot.data!.data() as Map<String, dynamic>
+            : {};
+
+        // Parse key live metrics safely from Firestore document
+        final double soc =
+            (data['battery_soc'] ?? data['soc'] ?? widget.currentPercentage)
+                .toDouble();
+        final double totalGenerated =
+            (data['total_generated_kwh'] ?? data['total_kwh'] ?? 69.32)
+                .toDouble();
+        final double peakOutput =
+            (data['peak_output_kw'] ?? data['peak_power'] ?? 20.0).toDouble();
+        final double estimatedSavings =
+            (data['estimated_savings'] ?? data['savings_php'] ?? 0.0)
+                .toDouble();
+
+        // Parse dynamic solar panels list if available, else fall back to cardCount
+        final List<dynamic> panelsData =
+            (data['panels'] as List<dynamic>?) ?? [];
+
+        return Scaffold(
+          key: _scaffoldKey,
+          drawer: _buildSideMenu(context),
+          appBar: appBar(),
+          body: Container(
+            decoration: const BoxDecoration(color: Colors.white),
+            child: ListView(
               children: [
-                SizedBox(
-                  width: MediaQuery.of(context).size.width,
+                // Live Top Dashboard with battery SoC & Total Generated
+                topDashboard(soc: soc, totalGenerated: totalGenerated),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: MediaQuery.of(context).size.width,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          // PEAK OUTPUT CARD
+                          Container(
+                            alignment: const Alignment(0, -0.8),
+                            height: 120,
+                            width: MediaQuery.of(context).size.width * 0.46,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withValues(alpha: 0.3),
+                                  spreadRadius: 2,
+                                  blurRadius: 3,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 10, bottom: 10),
+                                  child: Text(
+                                    'Peak Output',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  margin: const EdgeInsets.only(
+                                    top: 10,
+                                    bottom: 10,
+                                  ),
+                                  child: IntrinsicHeight(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        const SizedBox(width: 10),
+                                        Text(
+                                          peakOutput.toStringAsFixed(1),
+                                          style: const TextStyle(
+                                            fontSize: 36,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        const Padding(
+                                          padding: EdgeInsets.only(bottom: 10),
+                                          child: Text('kW/h'),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // ESTIMATED SAVINGS CARD
+                          Container(
+                            alignment: const Alignment(0, -0.8),
+                            height: 120,
+                            width: MediaQuery.of(context).size.width * 0.46,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.grey.withValues(alpha: 0.3),
+                                  spreadRadius: 2,
+                                  blurRadius: 3,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 10, bottom: 10),
+                                  child: Text(
+                                    'Estimated Savings',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                Container(
+                                  margin: const EdgeInsets.only(
+                                    top: 10,
+                                    bottom: 10,
+                                  ),
+                                  child: IntrinsicHeight(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        const Padding(
+                                          padding: EdgeInsets.only(bottom: 10),
+                                          child: Text('₱'),
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          estimatedSavings.toStringAsFixed(0),
+                                          style: const TextStyle(
+                                            fontSize: 36,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                // Monitoring Section Header with Dropdown
+                Padding(
+                  padding: const EdgeInsets.only(left: 17, right: 15, top: 12),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      Container(
-                        alignment: const Alignment(0, -0.8),
-                        height: 120,
-                        width: MediaQuery.of(context).size.width * 0.46,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withValues(alpha: 0.3),
-                              spreadRadius: 2,
-                              blurRadius: 3,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 10, bottom: 10),
-                              child: Text(
-                                'Peak Output',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              margin: const EdgeInsets.only(
-                                top: 10,
-                                bottom: 10,
-                              ),
-                              child: IntrinsicHeight(
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: const [
-                                    SizedBox(width: 28),
-                                    Text(
-                                      '20',
-                                      style: TextStyle(
-                                        fontSize: 40,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    SizedBox(width: 4),
-                                    Padding(
-                                      padding: EdgeInsets.only(bottom: 10),
-                                      child: Text('kw/h'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                      const Text(
+                        'Monitoring',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                      Container(
-                        alignment: const Alignment(0, -0.8),
-                        height: 120,
-                        width: MediaQuery.of(context).size.width * 0.46,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.withValues(alpha: 0.3),
-                              spreadRadius: 2,
-                              blurRadius: 3,
-                              offset: const Offset(0, 2),
+                      const Spacer(),
+                      const Text(
+                        'sort by ',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedFilter,
+                          dropdownColor: Colors.white,
+                          icon: const Padding(
+                            padding: EdgeInsets.only(left: 4),
+                            child: Icon(
+                              CupertinoIcons.chevron_down,
+                              size: 14,
+                              color: Colors.black,
                             ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 10, bottom: 10),
-                              child: Text(
-                                'Estimated Savings',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              margin: const EdgeInsets.only(
-                                top: 10,
-                                bottom: 10,
-                              ),
-                              child: IntrinsicHeight(
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: const [
-                                    Padding(
-                                      padding: EdgeInsets.only(bottom: 10),
-                                      child: Text('P'),
-                                    ),
-                                    SizedBox(width: 3),
-                                    Text(
-                                      '1',
-                                      style: TextStyle(
-                                        fontSize: 40,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          onChanged: (String? newValue) {
+                            if (newValue != null) {
+                              setState(() {
+                                selectedFilter = newValue;
+                              });
+                            }
+                          },
+                          items: filterOptions.map<DropdownMenuItem<String>>((
+                            String value,
+                          ) {
+                            return DropdownMenuItem<String>(
+                              value: value,
+                              child: Text(value),
+                            );
+                          }).toList(),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
 
-            // Monitoring Section Header with Dropdown
-            Padding(
-              padding: const EdgeInsets.only(left: 17, right: 15, top: 12),
-              child: Row(
-                children: [
-                  const Text(
-                    'Monitoring',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-                  const Text(
-                    'sort by ',
-                    style: TextStyle(fontSize: 11, color: Colors.grey),
-                  ),
-                  DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedFilter,
-                      dropdownColor: Colors.white,
-                      icon: const Padding(
-                        padding: EdgeInsets.only(left: 4),
-                        child: Icon(
-                          CupertinoIcons.chevron_down,
-                          size: 14,
-                          color: Colors.black,
-                        ),
-                      ),
-                      style: const TextStyle(
-                        color: Colors.black,
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          setState(() {
-                            selectedFilter = newValue;
-                          });
-                        }
-                      },
-                      items: filterOptions.map<DropdownMenuItem<String>>((
-                        String value,
-                      ) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
+                // Dynamic Solar Monitoring Cards from Firestore or Widget Fallback
+                Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    if (panelsData.isNotEmpty)
+                      ...panelsData.map((panel) {
+                        final String name = panel['name'] ?? 'Solar Panel';
+                        final double val =
+                            (panel['power_kwh'] ?? panel['power_w'] ?? 30.0)
+                                .toDouble();
+                        return metricCard(title: name, value: val);
+                      })
+                    else
+                      ...List.generate(widget.cardCount, (index) {
+                        return metricCard(
+                          title: 'Solar Panel ${index + 1}',
+                          value: 30.0,
                         );
-                      }).toList(),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            Column(
-              children: [
-                const SizedBox(height: 8),
-                ...List.generate(widget.cardCount, (index) {
-                  return metricCard();
-                }),
+                      }),
+                  ],
+                ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -283,8 +338,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 14),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
+                  children: const [
+                    Text(
                       'Menu',
                       style: TextStyle(
                         color: Colors.black,
@@ -293,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         letterSpacing: -0.2,
                       ),
                     ),
-                    const SizedBox(height: 3),
+                    SizedBox(height: 3),
                   ],
                 ),
               ],
@@ -347,7 +402,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: CupertinoIcons.square_arrow_right,
                   title: 'Log Out',
                   isDestructive: true,
-                  onTap: () => Navigator.pop(context),
+                  onTap: () async {
+                    Navigator.pop(context); // Close Drawer
+                    await FirebaseAuth.instance
+                        .signOut(); // ADDED: Logout action
+                    if (context.mounted) {
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(
+                          builder: (context) => const SlickLoginScreen(),
+                        ),
+                      );
+                    }
+                  },
                 ),
               ],
             ),
@@ -433,7 +499,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Row metricCard() {
+  // MODIFIED: Parameterized to accept live dynamic metric values
+  Widget metricCard({required String title, required double value}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -458,19 +525,19 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  SizedBox(height: 22),
+                children: [
+                  const SizedBox(height: 22),
                   Padding(
-                    padding: EdgeInsets.only(top: 4, bottom: 2.5),
+                    padding: const EdgeInsets.only(top: 4, bottom: 2.5),
                     child: Text(
-                      'Solar Panel',
-                      style: TextStyle(
+                      title,
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 21,
                       ),
                     ),
                   ),
-                  Text('Individual Value', style: TextStyle(fontSize: 9)),
+                  const Text('Individual Value', style: TextStyle(fontSize: 9)),
                 ],
               ),
               const Spacer(),
@@ -481,9 +548,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Container(
                     alignment: Alignment.bottomCenter,
-                    child: const Text(
-                      '30',
-                      style: TextStyle(
+                    child: Text(
+                      value.toStringAsFixed(0),
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 30,
                       ),
@@ -503,7 +570,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget topDashboard() {
+  // MODIFIED: Parameterized with live dynamic values from Firestore
+  Widget topDashboard({required double soc, required double totalGenerated}) {
     return Container(
       height: 300,
       decoration: const BoxDecoration(
@@ -675,17 +743,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
-                      children: const [
+                      children: [
                         Text(
-                          '69.32',
-                          style: TextStyle(
+                          totalGenerated.toStringAsFixed(2),
+                          style: const TextStyle(
                             fontSize: 35,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
                         ),
-                        SizedBox(width: 6),
-                        Text(
+                        const SizedBox(width: 6),
+                        const Text(
                           'KW/H',
                           style: TextStyle(
                             fontSize: 18,
@@ -709,10 +777,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    dynamicChargingBar(),
+                    // Live dynamic charging segment bar
+                    dynamicChargingBar(soc),
                     const SizedBox(height: 4),
                     Text(
-                      '${widget.currentPercentage.toStringAsFixed(0)}% Charged',
+                      '${soc.toStringAsFixed(0)}% Charged',
                       style: const TextStyle(
                         fontSize: 10,
                         color: Colors.white70,
@@ -781,7 +850,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Row dynamicChargingBar() {
+  // MODIFIED: Accepts live battery percentage to dynamically highlight bar segments
+  Row dynamicChargingBar(double socPercentage) {
     const int totalSegment = 10;
 
     return Row(
@@ -790,10 +860,9 @@ class _HomeScreenState extends State<HomeScreen> {
         final double segmentStart = index * 10.0;
         final double segmentEnd = (index + 1) * 10.0;
 
-        final bool isFullyFilled = widget.currentPercentage >= segmentEnd;
+        final bool isFullyFilled = socPercentage >= segmentEnd;
         final bool isPartiallyFilled =
-            widget.currentPercentage > segmentStart &&
-            widget.currentPercentage < segmentEnd;
+            socPercentage > segmentStart && socPercentage < segmentEnd;
 
         Color segmentColor;
         List<BoxShadow> shadowList = [];

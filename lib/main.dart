@@ -1,12 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // ADDED: Required for Firebase initialization
-import 'screens/home_screen.dart';
-import 'screens/settings_screen.dart';
-import 'screens/notification_screen.dart';
-import 'screens/groups_screen.dart';
-import 'screens/initial_setup_screen.dart';
-import 'screens/analytics_screen.dart';
 import 'screens/login_screen.dart';
 
 // MODIFIED: Made main() async to initialize Firebase before loading the UI

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
-import '../screens/home_screen.dart';
 
 enum NotificationType {
   info, // Green: Updates, TOS, General Reminders
