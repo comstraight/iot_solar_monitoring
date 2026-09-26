@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -35,36 +36,82 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     super.dispose();
   }
 
-  void _handleSavePassword() {
-    if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
+  Future<void> _handleSavePassword() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-      Future.delayed(const Duration(seconds: 1, milliseconds: 500), () {
-        if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+
+      if (user == null || user.email == null) {
+        _showSnackBar('No active user session found.', isError: true);
         setState(() => _isLoading = false);
+        return;
+      }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: darkGreen,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            content: const Row(
-              children: [
-                Icon(
-                  CupertinoIcons.checkmark_circle_fill,
-                  color: Color(0xFF00FF22),
-                ),
-                SizedBox(width: 10),
-                Text('Password updated successfully!'),
-              ],
-            ),
-          ),
-        );
-        Navigator.pop(context);
-      });
+      // Step 1: Re-authenticate user with current password
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: _currentPasswordController.text.trim(),
+      );
+
+      await user.reauthenticateWithCredential(credential);
+
+      // Step 2: Update password in Firebase Auth
+      await user.updatePassword(_newPasswordController.text.trim());
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      _showSnackBar('Password updated successfully!');
+      Navigator.pop(context);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      String errorMessage = 'Failed to update password. Please try again.';
+
+      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
+        errorMessage = 'Current password is incorrect.';
+      } else if (e.code == 'weak-password') {
+        errorMessage = 'The new password provided is too weak.';
+      } else if (e.code == 'requires-recent-login') {
+        errorMessage = 'Session expired. Please log out and log in again.';
+      } else if (e.message != null) {
+        errorMessage = e.message!;
+      }
+
+      _showSnackBar(errorMessage, isError: true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showSnackBar('An unexpected error occurred.', isError: true);
     }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.red[800] : darkGreen,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        content: Row(
+          children: [
+            Icon(
+              isError
+                  ? CupertinoIcons.exclamationmark_circle_fill
+                  : CupertinoIcons.checkmark_circle_fill,
+              color: isError ? Colors.white : const Color(0xFF00FF22),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message, style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -101,7 +148,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                 fontSize: 14,
                               ),
                               decoration: _buildInputDecoration(
-                                hint: '',
+                                hint: 'Enter current password',
                                 prefixIcon: CupertinoIcons.lock_fill,
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -132,7 +179,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                 fontSize: 14,
                               ),
                               decoration: _buildInputDecoration(
-                                hint: '',
+                                hint: 'Enter new password',
                                 prefixIcon: CupertinoIcons.lock_shield_fill,
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -175,7 +222,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                 fontSize: 14,
                               ),
                               decoration: _buildInputDecoration(
-                                hint: '',
+                                hint: 'Re-enter new password',
                                 prefixIcon: CupertinoIcons.lock_shield_fill,
                                 suffixIcon: IconButton(
                                   icon: Icon(
@@ -345,7 +392,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(),
+            color: Colors.grey.withValues(alpha: 0.2),
             blurRadius: 3,
             offset: const Offset(0, 2),
           ),

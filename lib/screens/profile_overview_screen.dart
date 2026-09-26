@@ -1,27 +1,80 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'editable_profile_screen.dart';
 
-// --- DATA MODEL ---
+// --- DATA MODEL WITH FIREBASE REAL-TIME SYNC ---
 class ProfileData extends ChangeNotifier {
-  String name = 'Andrei Esporlas';
-  String role = 'Solar Telemetry Administrator';
-  String email = 'andrei@example.com';
-  String phone = '+63 912 345 6789';
-  String userId = '423002684';
+  String name = '';
+  String role = '';
+  String email = '';
+  String phone = '';
+  String userId = '';
+  bool isLoading = true;
 
-  void updateProfile(
+  StreamSubscription<DocumentSnapshot>? _subscription;
+
+  ProfileData() {
+    _listenToFirebaseProfile();
+  }
+
+  void _listenToFirebaseProfile() {
+    // Listens to 'users/profile' document in Firestore in real time
+    _subscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc('profile')
+        .snapshots()
+        .listen(
+          (doc) {
+            if (doc.exists && doc.data() != null) {
+              final data = doc.data()!;
+              name = data['name'] ?? '';
+              role = data['role'] ?? 'User';
+              email = data['email'] ?? '';
+              phone = data['phone'] ?? '';
+              userId = data['userId'] ?? doc.id;
+            }
+            isLoading = false;
+            notifyListeners();
+          },
+          onError: (_) {
+            isLoading = false;
+            notifyListeners();
+          },
+        );
+  }
+
+  Future<void> updateProfile(
     String newName,
     String newEmail,
     String newPhone,
     String newUserId,
-  ) {
+  ) async {
+    // Update local state for immediate feedback
     name = newName;
     email = newEmail;
     phone = newPhone;
     userId = newUserId;
     notifyListeners();
+
+    // Save changes back to Firebase Firestore
+    try {
+      await FirebaseFirestore.instance.collection('users').doc('profile').set({
+        'name': newName,
+        'email': newEmail,
+        'phone': newPhone,
+        'userId': newUserId,
+        'role': role,
+      }, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 }
 
@@ -38,7 +91,7 @@ void main() {
   );
 }
 
-// ==================== 1. PROFILE OVERVIEW SCREEN ====================
+// ==================== PROFILE OVERVIEW SCREEN ====================
 class ProfileOverviewScreen extends StatelessWidget {
   final ProfileData? profile;
   final VoidCallback? onEditPressed;
@@ -53,15 +106,22 @@ class ProfileOverviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ProfileData profile;
-    if (this.profile != null) {
-      profile = this.profile!;
+    ProfileData profileData;
+    if (profile != null) {
+      profileData = profile!;
     } else {
       try {
-        profile = context.watch<ProfileData>();
+        profileData = context.watch<ProfileData>();
       } catch (_) {
-        profile = ProfileData();
+        profileData = ProfileData();
       }
+    }
+
+    if (profileData.isLoading) {
+      return const Scaffold(
+        backgroundColor: pageBg,
+        body: Center(child: CircularProgressIndicator(color: midGreen)),
+      );
     }
 
     return Scaffold(
@@ -94,7 +154,7 @@ class ProfileOverviewScreen extends StatelessWidget {
                               radius: 28,
                               backgroundColor: darkGreen,
                               child: Text(
-                                _getInitials(profile.name),
+                                _getInitials(profileData.name),
                                 style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -109,7 +169,9 @@ class ProfileOverviewScreen extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  profile.name,
+                                  profileData.name.isEmpty
+                                      ? 'No Name Set'
+                                      : profileData.name,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 18,
@@ -118,7 +180,9 @@ class ProfileOverviewScreen extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  profile.role,
+                                  profileData.role.isEmpty
+                                      ? 'Role Not Specified'
+                                      : profileData.role,
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey.shade600,
@@ -142,19 +206,25 @@ class ProfileOverviewScreen extends StatelessWidget {
                     _buildInfoListTile(
                       icon: CupertinoIcons.mail_solid,
                       label: 'EMAIL ADDRESS',
-                      value: profile.email,
+                      value: profileData.email.isEmpty
+                          ? 'Not Provided'
+                          : profileData.email,
                     ),
                     _buildDivider(),
                     _buildInfoListTile(
                       icon: CupertinoIcons.phone_fill,
                       label: 'PHONE NUMBER',
-                      value: profile.phone,
+                      value: profileData.phone.isEmpty
+                          ? 'Not Provided'
+                          : profileData.phone,
                     ),
                     _buildDivider(),
                     _buildInfoListTile(
                       icon: CupertinoIcons.person_badge_minus_fill,
                       label: 'STUDENT / USER ID',
-                      value: profile.userId,
+                      value: profileData.userId.isEmpty
+                          ? 'Not Assigned'
+                          : profileData.userId,
                     ),
                   ],
                 ),
@@ -204,6 +274,7 @@ class ProfileOverviewScreen extends StatelessWidget {
   }
 
   String _getInitials(String name) {
+    if (name.trim().isEmpty) return 'U';
     final parts = name
         .trim()
         .split(RegExp(r'\s+'))

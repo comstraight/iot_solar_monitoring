@@ -1,5 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class FeedbackScreen extends StatefulWidget {
   const FeedbackScreen({super.key});
@@ -9,7 +11,14 @@ class FeedbackScreen extends StatefulWidget {
 }
 
 class _FeedbackScreenState extends State<FeedbackScreen> {
+  // ===========================================================================
+  // PLACEHOLDER RECEIVER EMAIL
+  // Replace this string with the inbox email address where you want to receive feedback.
+  // ===========================================================================
+  static const String receiverEmail = 'support@yourdomain.com';
+
   int _selectedCategoryIndex = 0;
+  bool _isLoading = false;
 
   final TextEditingController _feedbackController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -21,7 +30,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     'Other',
   ];
 
-  bool get _canSubmit => _feedbackController.text.trim().isNotEmpty;
+  // Validation Safeguard: Require between 10 and 1,000 characters
+  bool get _canSubmit {
+    final textLength = _feedbackController.text.trim().length;
+    return textLength >= 10 && textLength <= 1000;
+  }
 
   @override
   void dispose() {
@@ -30,9 +43,65 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     super.dispose();
   }
 
-  void _handleSubmit() {
-    if (!_canSubmit) return;
+  /// WRITE OPERATION: Submits feedback payload to Firestore
+  Future<void> _handleSubmit() async {
+    if (!_canSubmit || _isLoading) return;
 
+    setState(() => _isLoading = true);
+
+    try {
+      final User? currentUser = FirebaseAuth.instance.currentUser;
+      final String inputEmail = _emailController.text.trim();
+
+      // Submit feedback payload to Firestore 'feedback' collection
+      await FirebaseFirestore.instance.collection('feedback').add({
+        'category': _categories[_selectedCategoryIndex],
+        'message': _feedbackController.text.trim(),
+        'senderEmail': inputEmail.isNotEmpty
+            ? inputEmail
+            : (currentUser?.email ?? 'Anonymous'),
+        'targetReceiverEmail': receiverEmail,
+        'userId': currentUser?.uid ?? 'anonymous',
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'pending',
+      });
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      _showSuccessBottomSheet();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.red[800],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          content: const Row(
+            children: [
+              Icon(
+                CupertinoIcons.exclamationmark_circle_fill,
+                color: Colors.white,
+              ),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Failed to submit feedback. Please try again.',
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+  }
+
+  void _showSuccessBottomSheet() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -106,6 +175,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final trimmedText = _feedbackController.text.trim();
+    final currentLength = trimmedText.length;
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SingleChildScrollView(
@@ -248,7 +320,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
                   const SizedBox(height: 28),
 
-                  // SECTION 2: MESSAGE INPUT CARD
+                  // SECTION 2: MESSAGE INPUT CARD WITH CHAR LIMIT & COUNTER
                   const Text(
                     'Your Message',
                     style: TextStyle(
@@ -275,7 +347,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                     ),
                     child: TextField(
                       controller: _feedbackController,
-                      maxLines: 4,
+                      maxLines: 5,
+                      maxLength: 1000, // Capped at 1,000 characters
                       onChanged: (_) => setState(() {}),
                       style: const TextStyle(
                         fontSize: 14,
@@ -283,16 +356,34 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       ),
                       decoration: const InputDecoration(
                         hintText:
-                            'Describe what you love or how we can improve...',
+                            'Describe what you love or how we can improve (at least 10 characters)...',
                         hintStyle: TextStyle(
                           color: Color(0xFF94A3B8),
                           fontSize: 14,
                         ),
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.all(16),
+                        counterStyle: TextStyle(
+                          color: Color(0xFF94A3B8),
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ),
+
+                  // Helper message when typing under 10 characters
+                  if (currentLength > 0 && currentLength < 10)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6.0, left: 4.0),
+                      child: Text(
+                        'Please enter at least ${10 - currentLength} more character${(10 - currentLength) == 1 ? '' : 's'}',
+                        style: const TextStyle(
+                          color: Colors.amber,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
 
                   const SizedBox(height: 20),
 
@@ -343,7 +434,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _canSubmit ? _handleSubmit : null,
+                      onPressed: (_canSubmit && !_isLoading)
+                          ? _handleSubmit
+                          : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF15803D),
                         disabledBackgroundColor: const Color(0xFFE2E8F0),
@@ -353,16 +446,25 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                       ),
-                      child: Text(
-                        'Submit Feedback',
-                        style: TextStyle(
-                          color: _canSubmit
-                              ? Colors.white
-                              : const Color(0xFF94A3B8),
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              'Submit Feedback',
+                              style: TextStyle(
+                                color: _canSubmit
+                                    ? Colors.white
+                                    : const Color(0xFF94A3B8),
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                     ),
                   ),
 

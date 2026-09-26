@@ -229,7 +229,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                 .set({
                                   'node_id': nodeId,
                                   'name': panelName,
-                                  'capacity': '$capacity Watts',
+                                  'capacity': double.tryParse(capacity) ?? 0.0,
                                   'linked_at': FieldValue.serverTimestamp(),
                                   'status': 'Online',
                                 });
@@ -546,7 +546,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                   child: _buildPanelNodeTile(
                     id: doc.id,
                     name: data['name'] ?? 'Solar Panel',
-                    capacity: data['capacity'] ?? '300W Capacity',
+                    capacity: '${data['capacity']?.toString() ?? '300'} Watts',
                     nodeId: data['node_id'] ?? doc.id,
                     status: data['status'] ?? 'Online',
                   ),

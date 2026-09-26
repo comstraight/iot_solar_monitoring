@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class BarData {
   final String label;
@@ -22,7 +24,9 @@ class AnalyticsRecord {
 }
 
 class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({super.key});
+  final String systemId;
+
+  const AnalyticsScreen({super.key, this.systemId = 'solar_system_01'});
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
@@ -34,159 +38,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   static const Color pageBg = Color(0xFFF4F4F4);
   static const Color cardBg = Color(0xFFEBEBEB);
 
-  // Timeframe switch state (0: Daily, 1: Weekly, 2: Monthly, 3: Annually)
-  int _selectedTimeframe = 0;
-
-  // Single active PageController
+  int _selectedTimeframe = 0; // 0: Daily, 1: Weekly, 2: Annually
   PageController? _pageController;
+  int _activePageIndex = 0;
 
-  // Indices tracking current page position for each dataset
-  int _dailyIndex = 2;
-  int _weeklyIndex = 1;
-  int _monthlyIndex = 2;
-  int _annualIndex = 1;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  // Persistent Latest Overall Stats
-  final String _latestPowerGenerated = '725 kWh';
-  final String _latestTotalEarnings = '₱ 4,350.00';
-
-  // --- DATASETS ---
-  final List<AnalyticsRecord> _dailyRecords = const [
-    AnalyticsRecord(
-      title: 'Sep 15, 2026',
-      bars: [
-        BarData(label: '6AM', val: 0.35, isHighlight: false),
-        BarData(label: '7AM', val: 0.45, isHighlight: false),
-        BarData(label: '8AM', val: 0.65, isHighlight: false),
-        BarData(label: '9AM', val: 0.40, isHighlight: false),
-        BarData(
-          label: '10AM',
-          val: 0.85,
-          isHighlight: true,
-          peakVal: '310 kWh',
-        ),
-        BarData(label: '11AM', val: 0.70, isHighlight: false),
-        BarData(label: '12PM', val: 0.40, isHighlight: false),
-      ],
-    ),
-    AnalyticsRecord(
-      title: 'Sep 16, 2026',
-      bars: [
-        BarData(label: '6AM', val: 0.40, isHighlight: false),
-        BarData(label: '7AM', val: 0.50, isHighlight: false),
-        BarData(label: '8AM', val: 0.80, isHighlight: true, peakVal: '340 kWh'),
-        BarData(label: '9AM', val: 0.55, isHighlight: false),
-        BarData(label: '10AM', val: 0.65, isHighlight: false),
-        BarData(label: '11AM', val: 0.60, isHighlight: false),
-        BarData(label: '12PM', val: 0.45, isHighlight: false),
-      ],
-    ),
-    AnalyticsRecord(
-      title: 'Sep 17, 2026 (Today)',
-      bars: [
-        BarData(label: '6AM', val: 0.45, isHighlight: false),
-        BarData(label: '7AM', val: 0.55, isHighlight: false),
-        BarData(label: '8AM', val: 0.75, isHighlight: false),
-        BarData(label: '9AM', val: 0.38, isHighlight: false),
-        BarData(label: '10AM', val: 0.75, isHighlight: false),
-        BarData(
-          label: '11AM',
-          val: 1.00,
-          isHighlight: true,
-          peakVal: '360 kWh',
-        ),
-        BarData(label: '12PM', val: 0.52, isHighlight: false),
-      ],
-    ),
-  ];
-
-  final List<AnalyticsRecord> _weeklyRecords = const [
-    AnalyticsRecord(
-      title: 'Aug 31 - Sep 06, 2026',
-      bars: [
-        BarData(label: 'Mon', val: 0.60, isHighlight: false),
-        BarData(label: 'Tue', val: 0.70, isHighlight: false),
-        BarData(label: 'Wed', val: 0.50, isHighlight: false),
-        BarData(label: 'Thu', val: 0.80, isHighlight: false),
-        BarData(label: 'Fri', val: 0.95, isHighlight: true, peakVal: '4.1 MWh'),
-        BarData(label: 'Sat', val: 0.65, isHighlight: false),
-        BarData(label: 'Sun', val: 0.40, isHighlight: false),
-      ],
-    ),
-    AnalyticsRecord(
-      title: 'Sep 07 - Sep 13, 2026 (Current Week)',
-      bars: [
-        BarData(label: 'Mon', val: 0.65, isHighlight: false),
-        BarData(label: 'Tue', val: 0.75, isHighlight: false),
-        BarData(label: 'Wed', val: 0.85, isHighlight: false),
-        BarData(label: 'Thu', val: 0.90, isHighlight: true, peakVal: '4.3 MWh'),
-        BarData(label: 'Fri', val: 0.80, isHighlight: false),
-        BarData(label: 'Sat', val: 0.70, isHighlight: false),
-        BarData(label: 'Sun', val: 0.60, isHighlight: false),
-      ],
-    ),
-  ];
-
-  final List<AnalyticsRecord> _monthlyRecords = const [
-    AnalyticsRecord(
-      title: 'July 2026',
-      bars: [
-        BarData(label: 'W1', val: 0.70, isHighlight: false),
-        BarData(label: 'W2', val: 0.80, isHighlight: false),
-        BarData(label: 'W3', val: 0.90, isHighlight: true, peakVal: '18 MWh'),
-        BarData(label: 'W4', val: 0.75, isHighlight: false),
-      ],
-    ),
-    AnalyticsRecord(
-      title: 'August 2026',
-      bars: [
-        BarData(label: 'W1', val: 0.65, isHighlight: false),
-        BarData(label: 'W2', val: 0.85, isHighlight: false),
-        BarData(label: 'W3', val: 0.95, isHighlight: true, peakVal: '19.5 MWh'),
-        BarData(label: 'W4', val: 0.80, isHighlight: false),
-      ],
-    ),
-    AnalyticsRecord(
-      title: 'September 2026 (Current Month)',
-      bars: [
-        BarData(label: 'W1', val: 0.75, isHighlight: false),
-        BarData(label: 'W2', val: 0.88, isHighlight: true, peakVal: '21 MWh'),
-        BarData(label: 'W3', val: 0.60, isHighlight: false),
-        BarData(label: 'W4', val: 0.00, isHighlight: false),
-      ],
-    ),
-  ];
-
-  final List<AnalyticsRecord> _annualRecords = const [
-    AnalyticsRecord(
-      title: 'Year 2025',
-      bars: [
-        BarData(label: 'Q1', val: 0.70, isHighlight: false),
-        BarData(label: 'Q2', val: 0.85, isHighlight: false),
-        BarData(label: 'Q3', val: 0.95, isHighlight: true, peakVal: '240 MWh'),
-        BarData(label: 'Q4', val: 0.80, isHighlight: false),
-      ],
-    ),
-    AnalyticsRecord(
-      title: 'Year 2026 (Current Year)',
-      bars: [
-        BarData(label: 'Q1', val: 0.80, isHighlight: false),
-        BarData(label: 'Q2', val: 0.90, isHighlight: false),
-        BarData(label: 'Q3', val: 1.00, isHighlight: true, peakVal: '265 MWh'),
-        BarData(label: 'Q4', val: 0.30, isHighlight: false),
-      ],
-    ),
-  ];
+  static const Map<int, List<String>> _expectedLabels = {
+    0: ['3AM', '6AM', '9AM', '12NN', '3PM', '6PM', '9PM', '12AM'],
+    1: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    2: [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ],
+  };
 
   @override
   void initState() {
     super.initState();
-    _initControllerForTimeframe();
-  }
-
-  void _initControllerForTimeframe() {
-    _pageController?.dispose();
-    _pageController = PageController(initialPage: _activeIndex);
+    _pageController = PageController();
   }
 
   @override
@@ -195,57 +75,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     super.dispose();
   }
 
-  List<AnalyticsRecord> get _activeRecords {
-    switch (_selectedTimeframe) {
-      case 1:
-        return _weeklyRecords;
-      case 2:
-        return _monthlyRecords;
-      case 3:
-        return _annualRecords;
-      case 0:
-      default:
-        return _dailyRecords;
+  void _onTimeframeChanged(int newTimeframe) {
+    if (_selectedTimeframe != newTimeframe) {
+      setState(() {
+        _selectedTimeframe = newTimeframe;
+        _activePageIndex = 0;
+        _pageController?.dispose();
+        _pageController = PageController(initialPage: 0);
+      });
     }
   }
 
-  int get _activeIndex {
-    switch (_selectedTimeframe) {
-      case 1:
-        return _weeklyIndex.clamp(0, _weeklyRecords.length - 1);
-      case 2:
-        return _monthlyIndex.clamp(0, _monthlyRecords.length - 1);
-      case 3:
-        return _annualIndex.clamp(0, _annualRecords.length - 1);
-      case 0:
-      default:
-        return _dailyIndex.clamp(0, _dailyRecords.length - 1);
-    }
-  }
-
-  void _updateActiveIndex(int newIndex) {
-    setState(() {
-      switch (_selectedTimeframe) {
-        case 0:
-          _dailyIndex = newIndex;
-          break;
-        case 1:
-          _weeklyIndex = newIndex;
-          break;
-        case 2:
-          _monthlyIndex = newIndex;
-          break;
-        case 3:
-          _annualIndex = newIndex;
-          break;
-      }
-    });
-  }
-
-  void _navigateToPage(int index) {
-    if (index >= 0 &&
-        index < _activeRecords.length &&
-        _pageController != null) {
+  void _navigateToPage(int index, int totalRecords) {
+    if (index >= 0 && index < totalRecords && _pageController != null) {
       _pageController!.animateToPage(
         index,
         duration: const Duration(milliseconds: 300),
@@ -254,19 +96,106 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  void _onTimeframeChanged(int newTimeframe) {
-    if (_selectedTimeframe != newTimeframe) {
-      setState(() {
-        _selectedTimeframe = newTimeframe;
-        _initControllerForTimeframe();
-      });
+  String _getCollectionName() {
+    switch (_selectedTimeframe) {
+      case 1:
+        return 'weekly';
+      case 2:
+        return 'annually';
+      case 0:
+      default:
+        return 'daily';
     }
+  }
+
+  List<AnalyticsRecord> _parseRecordsFromFirestore(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    double graphCeilingLimit,
+  ) {
+    if (docs.isEmpty) return [];
+
+    List<AnalyticsRecord> records = [];
+
+    if (_selectedTimeframe == 2) {
+      // Annual split into First Half / Second Half documents
+      for (var doc in docs) {
+        final data = doc.data();
+
+        // Process First Half
+        if (data.containsKey('firstHalf')) {
+          final firstHalf = data['firstHalf'] as Map<String, dynamic>? ?? {};
+          final title = firstHalf['title'] as String? ?? 'First Half';
+          final barsMap = (firstHalf['bars'] as Map<String, dynamic>?) ?? {};
+          final labels = _expectedLabels[2]!.sublist(0, 6);
+          records.add(
+            _buildRecordFromMap(title, labels, barsMap, graphCeilingLimit),
+          );
+        }
+
+        // Process Second Half
+        if (data.containsKey('secondHalf')) {
+          final secondHalf = data['secondHalf'] as Map<String, dynamic>? ?? {};
+          final title = secondHalf['title'] as String? ?? 'Second Half';
+          final barsMap = (secondHalf['bars'] as Map<String, dynamic>?) ?? {};
+          final labels = _expectedLabels[2]!.sublist(6, 12);
+          records.add(
+            _buildRecordFromMap(title, labels, barsMap, graphCeilingLimit),
+          );
+        }
+      }
+    } else {
+      // Daily & Weekly docs
+      final labels = _expectedLabels[_selectedTimeframe]!;
+      for (var doc in docs) {
+        final data = doc.data();
+        final title = data['title'] as String? ?? doc.id;
+        final barsMap = (data['bars'] as Map<String, dynamic>?) ?? {};
+        records.add(
+          _buildRecordFromMap(title, labels, barsMap, graphCeilingLimit),
+        );
+      }
+    }
+
+    return records;
+  }
+
+  AnalyticsRecord _buildRecordFromMap(
+    String title,
+    List<String> labels,
+    Map<String, dynamic> rawBars,
+    double ratedCeiling,
+  ) {
+    double peakVal = 0.0;
+    Map<String, double> parsedValues = {};
+
+    for (var label in labels) {
+      double val = (rawBars[label] as num?)?.toDouble() ?? 0.0;
+      parsedValues[label] = val;
+      if (val > peakVal) peakVal = val;
+    }
+
+    double graphCeiling = ratedCeiling > 0
+        ? ratedCeiling
+        : (peakVal > 0 ? peakVal : 1.0);
+    if (peakVal > graphCeiling) graphCeiling = peakVal;
+
+    List<BarData> bars = labels.map((label) {
+      double rawVal = parsedValues[label]!;
+      bool isPeak = peakVal > 0 && rawVal == peakVal;
+
+      return BarData(
+        label: label,
+        val: graphCeiling > 0 ? (rawVal / graphCeiling).clamp(0.0, 1.0) : 0.0,
+        isHighlight: isPeak,
+        peakVal: isPeak ? '${rawVal.toStringAsFixed(1)} kWh' : '',
+      );
+    }).toList();
+
+    return AnalyticsRecord(title: title, bars: bars);
   }
 
   @override
   Widget build(BuildContext context) {
-    final activeRecord = _activeRecords[_activeIndex];
-
     return Scaffold(
       backgroundColor: pageBg,
       appBar: AppBar(
@@ -293,39 +222,110 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ],
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildTimeframeSelector(),
-            const SizedBox(height: 20),
-            _buildPersistentKpiRow(),
-            const SizedBox(height: 20),
-            const Text(
-              'Energy Output Trend',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.black,
-              ),
+      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: _db.collection('system_status').doc('current').snapshots(),
+        builder: (context, statusSnapshot) {
+          final statusData = statusSnapshot.data?.data() ?? {};
+
+          // Live KPIs
+          final totalPower =
+              '${(statusData['total_kwh_today'] as num?)?.toStringAsFixed(1) ?? '0.0'} kWh';
+          final totalEarnings =
+              '₱ ${(statusData['estimated_savings_php'] as num?)?.toStringAsFixed(1) ?? '0.0'}';
+
+          // Battery Diagnostics
+          final batteryData =
+              (statusData['battery'] as Map<String, dynamic>?) ?? {};
+          final double soc =
+              ((batteryData['soc'] ?? batteryData['soc_percent'] ?? 0.0) as num)
+                  .toDouble() /
+              100.0;
+          final double soh =
+              ((batteryData['soh'] ?? batteryData['soh_percent'] ?? 0.0) as num)
+                  .toDouble() /
+              100.0;
+
+          // Panel capacity calculation for dynamic graph limit
+          double ratedMaxCapacityWatts = 0.0;
+          final panelsMap = statusData['panels'] as Map<String, dynamic>? ?? {};
+          panelsMap.forEach((key, panelObj) {
+            if (panelObj is Map<String, dynamic>) {
+              num cap =
+                  panelObj['metadata']?['rated_power_w'] ??
+                  panelObj['rated_power_w'] ??
+                  300.0;
+              ratedMaxCapacityWatts += cap.toDouble();
+            }
+          });
+          double ratedMaxCapacityKw = ratedMaxCapacityWatts > 0
+              ? (ratedMaxCapacityWatts / 1000.0)
+              : 0.6;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 20.0,
+              vertical: 12.0,
             ),
-            const SizedBox(height: 12),
-            _buildGraphCard(activeRecord),
-            const SizedBox(height: 24),
-            const Text(
-              'Battery Diagnostics',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.black,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTimeframeSelector(),
+                const SizedBox(height: 20),
+                _buildPersistentKpiRow(totalPower, totalEarnings),
+                const SizedBox(height: 20),
+                const Text(
+                  'Energy Output Trend',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Dynamic Firestore Chart Stream
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: _db
+                      .collection('analytics')
+                      .doc(widget.systemId)
+                      .collection(_getCollectionName())
+                      .snapshots(),
+                  builder: (context, chartSnapshot) {
+                    if (chartSnapshot.connectionState ==
+                        ConnectionState.waiting) {
+                      return _buildChartLoadingState();
+                    }
+
+                    final docs = chartSnapshot.data?.docs ?? [];
+                    final records = _parseRecordsFromFirestore(
+                      docs,
+                      ratedMaxCapacityKw,
+                    );
+
+                    if (records.isEmpty) {
+                      return _buildEmptyChartCard();
+                    }
+
+                    return _buildGraphCard(records);
+                  },
+                ),
+
+                const SizedBox(height: 24),
+                const Text(
+                  'Battery Diagnostics',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildBatteryDiagnosticsCard(soc: soc, soh: soh),
+                const SizedBox(height: 32),
+              ],
             ),
-            const SizedBox(height: 12),
-            _buildBatteryDiagnosticsCard(),
-            const SizedBox(height: 32),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -343,7 +343,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildTimeframeSelector() {
-    final tabs = ['Daily', 'Weekly', 'Monthly', 'Annually'];
+    final tabs = ['Daily', 'Weekly', 'Annually'];
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
@@ -367,7 +367,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   tabs[index],
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                     color: isSelected ? Colors.white : Colors.black54,
                   ),
@@ -380,19 +380,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildPersistentKpiRow() {
+  Widget _buildPersistentKpiRow(String power, String earnings) {
     return Row(
       children: [
-        _buildKpiBox(
-          'Total Power',
-          _latestPowerGenerated,
-          Icons.bolt_rounded,
-          darkGreen,
-        ),
+        _buildKpiBox('Total Power', power, Icons.bolt_rounded, darkGreen),
         const SizedBox(width: 12),
         _buildKpiBox(
           'Total Earnings',
-          _latestTotalEarnings,
+          earnings,
           Icons.payments_rounded,
           Colors.teal,
         ),
@@ -432,7 +427,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildGraphCard(AnalyticsRecord activeRecord) {
+  Widget _buildGraphCard(List<AnalyticsRecord> records) {
+    final safeActiveIndex = _activePageIndex.clamp(0, records.length - 1);
+    final activeRecord = records[safeActiveIndex];
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -443,55 +441,88 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            height: 200,
+            height: 230,
             child: PageView.builder(
               key: ValueKey<int>(_selectedTimeframe),
               controller: _pageController,
-              itemCount: _activeRecords.length,
-              onPageChanged: _updateActiveIndex,
+              itemCount: records.length,
+              onPageChanged: (index) {
+                setState(() => _activePageIndex = index);
+              },
               itemBuilder: (context, recordIndex) {
-                final barData = _activeRecords[recordIndex].bars;
+                final barData = records[recordIndex].bars;
                 return Column(
                   children: [
                     Expanded(
-                      child: Stack(
-                        alignment: Alignment.bottomCenter,
-                        children: [
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: List.generate(
-                              4,
-                              (_) => _buildDashedLine(),
-                            ),
-                          ),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: barData.map<Widget>((item) {
-                              return Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          const double topHeadroom = 28.0;
+                          final double availableBarHeight =
+                              constraints.maxHeight - topHeadroom;
+
+                          return Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Positioned(
+                                top: topHeadroom,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
                                 child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    if (item.isHighlight)
-                                      _buildHighlightLabel(item.peakVal),
-                                    Container(
-                                      width: 42,
-                                      height: 110 * item.val,
-                                      decoration: BoxDecoration(
-                                        color: item.isHighlight
-                                            ? accentOrange
-                                            : darkGreen,
-                                        borderRadius:
-                                            const BorderRadius.vertical(
-                                              top: Radius.circular(8),
-                                            ),
-                                      ),
-                                    ),
-                                  ],
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: List.generate(
+                                    5,
+                                    (_) => _buildDashedLine(),
+                                  ),
                                 ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
+                              ),
+                              Positioned(
+                                top: topHeadroom,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: barData.map<Widget>((item) {
+                                    final calculatedBarHeight =
+                                        availableBarHeight *
+                                        item.val.clamp(0.0, 1.0);
+                                    return Expanded(
+                                      child: Stack(
+                                        alignment: Alignment.bottomCenter,
+                                        clipBehavior: Clip.none,
+                                        children: [
+                                          Container(
+                                            width: 20,
+                                            height: calculatedBarHeight,
+                                            decoration: BoxDecoration(
+                                              color: item.isHighlight
+                                                  ? accentOrange
+                                                  : darkGreen,
+                                              borderRadius:
+                                                  const BorderRadius.vertical(
+                                                    top: Radius.circular(6),
+                                                  ),
+                                            ),
+                                          ),
+                                          if (item.isHighlight &&
+                                              item.peakVal.isNotEmpty)
+                                            Positioned(
+                                              bottom: calculatedBarHeight + 6,
+                                              child: _buildHighlightLabel(
+                                                item.peakVal,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -501,10 +532,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           child: Center(
                             child: Text(
                               item.label,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.black87,
+                                color: item.val == 0.0 && !item.isHighlight
+                                    ? Colors.black38
+                                    : Colors.black87,
                               ),
                             ),
                           ),
@@ -517,15 +550,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          _buildNavControls(activeRecord.title),
+          _buildNavControls(
+            activeRecord.title,
+            records.length,
+            safeActiveIndex,
+          ),
         ],
       ),
     );
   }
 
   Widget _buildHighlightLabel(String val) => Container(
-    padding: const EdgeInsets.all(4),
-    margin: const EdgeInsets.only(bottom: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
     decoration: BoxDecoration(
       color: const Color(0xFFDDDDDD),
       borderRadius: BorderRadius.circular(12),
@@ -536,9 +572,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     ),
   );
 
-  Widget _buildNavControls(String title) {
-    final bool canGoBack = _activeIndex > 0;
-    final bool canGoForward = _activeIndex < _activeRecords.length - 1;
+  Widget _buildNavControls(String title, int totalRecords, int currentIndex) {
+    final bool canGoBack = currentIndex > 0;
+    final bool canGoForward = currentIndex < totalRecords - 1;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -552,14 +588,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           canGoBack
               ? IconButton(
                   icon: const Icon(Icons.chevron_left_rounded),
-                  onPressed: () => _navigateToPage(_activeIndex - 1),
+                  onPressed: () =>
+                      _navigateToPage(currentIndex - 1, totalRecords),
                 )
               : const SizedBox(width: 48),
           Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
           canGoForward
               ? IconButton(
                   icon: const Icon(Icons.chevron_right_rounded),
-                  onPressed: () => _navigateToPage(_activeIndex + 1),
+                  onPressed: () =>
+                      _navigateToPage(currentIndex + 1, totalRecords),
                 )
               : const SizedBox(width: 48),
         ],
@@ -567,7 +605,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildBatteryDiagnosticsCard() {
+  Widget _buildBatteryDiagnosticsCard({
+    required double soc,
+    required double soh,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -578,8 +619,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           _buildDiagnosticItem(
             label: 'State of Charge (SOC)',
-            valueText: '88%',
-            progressValue: 0.88,
+            valueText: '${(soc * 100).toInt()}%',
+            progressValue: soc.clamp(0.0, 1.0),
             progressColor: darkGreen,
             icon: Icons.battery_charging_full_rounded,
           ),
@@ -589,8 +630,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           _buildDiagnosticItem(
             label: 'State of Health (SOH)',
-            valueText: '96%',
-            progressValue: 0.96,
+            valueText: '${(soh * 100).toInt()}%',
+            progressValue: soh.clamp(0.0, 1.0),
             progressColor: Colors.teal,
             icon: Icons.favorite_rounded,
           ),
@@ -658,6 +699,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           height: 1.5,
           color: i % 2 == 0 ? Colors.black12 : Colors.transparent,
         ),
+      ),
+    ),
+  );
+
+  Widget _buildChartLoadingState() => Container(
+    height: 250,
+    decoration: BoxDecoration(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(28),
+    ),
+    child: const Center(child: CircularProgressIndicator(color: darkGreen)),
+  );
+
+  Widget _buildEmptyChartCard() => Container(
+    height: 250,
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: cardBg,
+      borderRadius: BorderRadius.circular(28),
+    ),
+    child: const Center(
+      child: Text(
+        'No generation data recorded yet.',
+        style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold),
       ),
     ),
   );

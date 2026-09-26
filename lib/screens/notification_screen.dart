@@ -1,14 +1,18 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
 enum NotificationType {
-  info, // Green: Updates, TOS, General Reminders
+  info, // Green: App Updates, Patches, TOS, General Reminders
   warning, // Yellow: Degradation prevention (dust, shading, cleaning)
   critical, // Red: Fires, Sensor nonfunctional/wiring failures
 }
 
 class NotificationItem {
   final String id;
+  final String senderName;
+  final String senderEmail;
   final String title;
   final String message;
   final String timestamp;
@@ -17,12 +21,37 @@ class NotificationItem {
 
   NotificationItem({
     required this.id,
+    required this.senderName,
+    required this.senderEmail,
     required this.title,
     required this.message,
     required this.timestamp,
     required this.type,
     this.isRead = false,
   });
+
+  factory NotificationItem.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+
+    NotificationType parsedType = NotificationType.info;
+    final typeStr = data['type']?.toString().toLowerCase() ?? 'info';
+    if (typeStr == 'critical') {
+      parsedType = NotificationType.critical;
+    } else if (typeStr == 'warning') {
+      parsedType = NotificationType.warning;
+    }
+
+    return NotificationItem(
+      id: doc.id,
+      senderName: data['senderName'] ?? 'System Monitor',
+      senderEmail: data['senderEmail'] ?? 'no-reply@solarcontrol.com',
+      title: data['title'] ?? 'Notice',
+      message: data['message'] ?? '',
+      timestamp: data['timestamp'] ?? 'Just now',
+      type: parsedType,
+      isRead: data['isRead'] ?? false,
+    );
+  }
 }
 
 class NotificationScreen extends StatefulWidget {
@@ -35,81 +64,265 @@ class NotificationScreen extends StatefulWidget {
 class _NotificationScreenState extends State<NotificationScreen> {
   static const Color pageBg = Color(0xFFF8FAF8);
 
-  // Initialized Dataset for the 3 Categories
-  final List<NotificationItem> _notifications = [
-    // 1. CRITICAL (RED)
-    NotificationItem(
-      id: 'n1',
-      title: 'Sensor Nonfunctional',
-      message:
-          'Voltage Sensor #2 is nonfunctional. This may be caused by defective or bad wiring.',
-      timestamp: '10m ago',
-      type: NotificationType.critical,
-      isRead: false,
-    ),
-    NotificationItem(
-      id: 'n2',
-      title: 'Critical Temperature Hazard',
-      message:
-          'Thermal anomaly detected on Array B. Extreme heat detected (possible fire risk). Check panel immediately.',
-      timestamp: '1h ago',
-      type: NotificationType.critical,
-      isRead: false,
-    ),
+  Timer? _pollingTimer;
+  bool _isLoading = true;
 
-    // 2. DEGRADATION WARNING (YELLOW)
-    NotificationItem(
-      id: 'n3',
-      title: 'Dust & Debris Accumulation',
-      message:
-          'Panel efficiency dropped by 4%. Dust layer detected—clean panels soon to prevent further output degradation.',
-      timestamp: '3h ago',
-      type: NotificationType.warning,
-      isRead: false,
-    ),
-    NotificationItem(
-      id: 'n4',
-      title: 'Partial Shading Alert',
-      message:
-          'Persistent shading detected on Panel 3 between 8 AM - 10 AM. Trim nearby foliage to avoid cell hotspots.',
-      timestamp: '1d ago',
-      type: NotificationType.warning,
-      isRead: true,
-    ),
+  // CHECK INTERVAL SETTING:
+  // For testing: Duration(seconds: 1)
+  // For deployment: Change to Duration(hours: 1)
+  static const Duration _checkInterval = Duration(
+    seconds: 1,
+  ); // <-- CHANGE TO Duration(hours: 1) FOR DEPLOYMENT
 
-    // 3. INFO / REMINDER / NEWS (GREEN)
-    NotificationItem(
-      id: 'n5',
-      title: 'System Firmware Update',
-      message:
-          'Solar Control App v1.0.3 and IoT Sensor Node updates are ready for installation.',
-      timestamp: '2d ago',
-      type: NotificationType.info,
-      isRead: true,
-    ),
-    NotificationItem(
-      id: 'n6',
-      title: 'Updated Terms of Service',
-      message:
-          'We have updated our Privacy Policy and Terms of Service regarding local data storage.',
-      timestamp: '3d ago',
-      type: NotificationType.info,
-      isRead: true,
-    ),
-  ];
+  // Clean initialization - zero hardcoded data
+  List<NotificationItem> _notifications = [];
 
-  void _markAllAsRead() {
+  @override
+  void initState() {
+    super.initState();
+    // Fetch directly from Firebase on launch
+    _fetchNotificationsFromFirebase();
+
+    // Setup periodic polling interval
+    _pollingTimer = Timer.periodic(_checkInterval, (_) {
+      _fetchNotificationsFromFirebase();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchNotificationsFromFirebase() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('notifications')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _notifications = snapshot.docs
+              .map((doc) => NotificationItem.fromFirestore(doc))
+              .toList();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _notifications = [];
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _markAllAsRead() async {
     setState(() {
       for (var item in _notifications) {
         item.isRead = true;
       }
     });
+
+    for (var item in _notifications) {
+      _updateReadStatusInFirestore(item.id, true);
+    }
   }
 
-  void _removeItem(String id) {
+  Future<void> _updateReadStatusInFirestore(String id, bool isRead) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(id)
+          .update({'isRead': isRead});
+    } catch (_) {}
+  }
+
+  Future<void> _removeItem(String id) async {
     setState(() {
       _notifications.removeWhere((item) => item.id == id);
     });
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(id)
+          .delete();
+    } catch (_) {}
+  }
+
+  void _openEmailReaderSheet(NotificationItem item) {
+    if (!item.isRead) {
+      setState(() => item.isRead = true);
+      _updateReadStatusInFirestore(item.id, true);
+    }
+
+    final Color badgeColor;
+    final String badgeLabel;
+
+    switch (item.type) {
+      case NotificationType.critical:
+        badgeColor = const Color(0xFFDC2626);
+        badgeLabel = 'CRITICAL SYSTEM ALERT';
+        break;
+      case NotificationType.warning:
+        badgeColor = const Color(0xFFD97706);
+        badgeLabel = 'WARNING';
+        break;
+      case NotificationType.info:
+        badgeColor = const Color(0xFF16A34A);
+        badgeLabel = 'SYSTEM ANNOUNCEMENT';
+        break;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.75,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    badgeLabel,
+                    style: TextStyle(
+                      color: badgeColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Text(
+                  item.timestamp,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              item.title,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: Colors.black,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F6F4),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    backgroundColor: badgeColor,
+                    radius: 18,
+                    child: Text(
+                      item.senderName[0].toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item.senderName,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
+                        ),
+                        Text(
+                          'From: <${item.senderEmail}>',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 32),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Text(
+                  item.message,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    height: 1.6,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF20831B),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 0,
+                ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Close Message',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -119,7 +332,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
     return Scaffold(
       backgroundColor: pageBg,
       appBar: _buildAppBar(context, unreadCount),
-      body: _notifications.isEmpty
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF20831B)),
+            )
+          : _notifications.isEmpty
           ? _buildEmptyState()
           : ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -213,48 +430,51 @@ class _NotificationScreenState extends State<NotificationScreen> {
     final IconData iconData;
 
     switch (item.type) {
-      case NotificationType.critical: // Red
+      case NotificationType.critical:
         iconColor = const Color(0xFFDC2626);
         iconData = CupertinoIcons.exclamationmark_triangle_fill;
         break;
-      case NotificationType.warning: // Yellow
+      case NotificationType.warning:
         iconColor = const Color(0xFFD97706);
         iconData = CupertinoIcons.bolt_horizontal_circle_fill;
         break;
-      case NotificationType.info: // Green
+      case NotificationType.info:
         iconColor = const Color(0xFF16A34A);
         iconData = CupertinoIcons.info_circle_fill;
         break;
     }
 
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          item.isRead = true;
-        });
-      },
+      onTap: () => _openEmailReaderSheet(item),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white, // Pure white box with zero background tint
+          color: Colors.white,
           borderRadius: BorderRadius.circular(16),
-          // Border removed entirely for a minimal floating appearance
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Clean Icon
             Padding(
               padding: const EdgeInsets.only(top: 2, right: 12),
               child: Icon(iconData, color: iconColor, size: 22),
             ),
-
-            // Content Column
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  Text(
+                    '${item.senderName} (${item.senderEmail})',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -268,8 +488,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                 : FontWeight.w800,
                             color: Colors.black,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: 6),
                       Text(
                         item.timestamp,
                         style: TextStyle(
@@ -283,6 +506,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   const SizedBox(height: 6),
                   Text(
                     item.message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.35,
@@ -294,8 +519,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 ],
               ),
             ),
-
-            // Unread Indicator Dot
             if (!item.isRead) ...[
               const SizedBox(width: 8),
               Container(

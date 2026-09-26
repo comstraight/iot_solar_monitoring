@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -9,14 +12,16 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
+
   // Search State
   String _searchQuery = '';
 
-  // Preferences States
+  // Preferences States (Stored locally via SharedPreferences)
   String _language = 'English';
   String _tempUnit = 'Celsius (°C)';
 
-  // Notifications States
+  // Notifications States (Stored locally via SharedPreferences)
   bool _masterNotifications = true;
   bool _alertNotifications = true;
   bool _updateNotifications = true;
@@ -32,6 +37,145 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const Color borderGreen = Color(0xFF20341E);
   static const Color lightGreenBg = Color(0xFFE8F5E9);
   static const Color pageBg = Colors.white;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalSettings();
+  }
+
+  // --- LOCAL STORAGE (SharedPreferences) ---
+  Future<void> _loadLocalSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _language = prefs.getString('pref_language') ?? 'English';
+      _tempUnit = prefs.getString('pref_temp_unit') ?? 'Celsius (°C)';
+      _masterNotifications = prefs.getBool('pref_master_notif') ?? true;
+      _alertNotifications = prefs.getBool('pref_alert_notif') ?? true;
+      _updateNotifications = prefs.getBool('pref_update_notif') ?? true;
+      _deliveryMethods =
+          prefs.getStringList('pref_delivery_methods')?.toSet() ?? {'Push'};
+      _quietHours = prefs.getBool('pref_quiet_hours') ?? false;
+      _syncInterval = prefs.getString('pref_sync_interval') ?? 'Real-time';
+    });
+  }
+
+  Future<void> _saveStringSetting(String key, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+  }
+
+  Future<void> _saveBoolSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+
+  Future<void> _saveListSetting(String key, List<String> value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(key, value);
+  }
+
+  // --- FIRESTORE PROFILE EDIT DIALOG ---
+  void _showEditProfileDialog(String currentName, String currentPhone) {
+    final nameController = TextEditingController(text: currentName);
+    final phoneController = TextEditingController(text: currentPhone);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Edit Contact Info',
+          style: TextStyle(
+            color: darkGreen,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Full Name',
+                prefixIcon: Icon(CupertinoIcons.person, color: midGreen),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: phoneController,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Phone Number',
+                prefixIcon: Icon(CupertinoIcons.phone, color: midGreen),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: darkGreen,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () async {
+              if (_currentUser != null) {
+                await FirebaseFirestore.instance
+                    .collection('users')
+                    .doc(_currentUser.uid)
+                    .set({
+                      'name': nameController.text.trim(),
+                      'phone': phoneController.text.trim(),
+                    }, SetOptions(merge: true));
+              }
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- AUTH ACTIONS ---
+  Future<void> _handleLogout() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    try {
+      if (_currentUser != null) {
+        // Delete Firestore user document first
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_currentUser.uid)
+            .delete();
+        // Delete Firebase Auth User
+        await _currentUser.delete();
+      }
+      if (!mounted) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete account: ${e.toString()}'),
+          backgroundColor: Colors.red.shade900,
+        ),
+      );
+    }
+  }
 
   void _showConfirmationDialog({
     required String title,
@@ -357,48 +501,75 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
 
-                // 1. ACCOUNT & PROFILE
+                // 1. ACCOUNT & PROFILE (Cloud Firestore-backed)
                 if (_matchesSearch(
                   'Account Profile Security Passwords User Info',
                 )) ...[
                   _buildSectionHeader('Account & Profile'),
                   _buildFloatingCard(
                     children: [
-                      ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        leading: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: const BoxDecoration(
-                            color: lightGreenBg,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            CupertinoIcons.person_fill,
-                            color: midGreen,
-                            size: 20,
-                          ),
-                        ),
-                        title: const Text(
-                          'Andrei Esporlas',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 17,
-                            color: Colors.black,
-                          ),
-                        ),
-                        subtitle: const Text(
-                          'andrei@example.com • +63 912 345 6789',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                        trailing: const Icon(
-                          CupertinoIcons.chevron_right,
-                          size: 16,
-                          color: Colors.grey,
-                        ),
-                        onTap: () {},
+                      StreamBuilder<DocumentSnapshot>(
+                        stream: _currentUser != null
+                            ? FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(_currentUser.uid)
+                                  .snapshots()
+                            : null,
+                        builder: (context, snapshot) {
+                          final data =
+                              snapshot.data?.data() as Map<String, dynamic>?;
+
+                          final String name =
+                              data?['name'] ??
+                              _currentUser?.displayName ??
+                              'Set Name';
+                          final String email =
+                              data?['email'] ??
+                              _currentUser?.email ??
+                              'No Email';
+                          final String phone =
+                              data?['phone'] ?? 'No phone added';
+
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 4,
+                            ),
+                            leading: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: const BoxDecoration(
+                                color: lightGreenBg,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                CupertinoIcons.person_fill,
+                                color: midGreen,
+                                size: 20,
+                              ),
+                            ),
+                            title: Text(
+                              name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 17,
+                                color: Colors.black,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '$email • $phone',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey,
+                              ),
+                            ),
+                            trailing: const Icon(
+                              CupertinoIcons.chevron_right,
+                              size: 16,
+                              color: Colors.grey,
+                            ),
+                            onTap: () => _showEditProfileDialog(name, phone),
+                          );
+                        },
                       ),
                       _buildDivider(),
                       ListTile(
@@ -429,7 +600,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
 
-                // 2. PREFERENCES & APPEARANCE
+                // 2. PREFERENCES & APPEARANCE (SharedPreferences)
                 if (_matchesSearch(
                   'Preferences Appearance Language Units Temperature',
                 )) ...[
@@ -454,7 +625,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           title: 'Select Language',
                           options: const ['English', 'Filipino', 'Spanish'],
                           currentValue: _language,
-                          onSelected: (val) => setState(() => _language = val),
+                          onSelected: (val) {
+                            setState(() => _language = val);
+                            _saveStringSetting('pref_language', val);
+                          },
                         ),
                       ),
                       _buildDivider(),
@@ -476,14 +650,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           title: 'Select Unit',
                           options: const ['Celsius (°C)', 'Fahrenheit (°F)'],
                           currentValue: _tempUnit,
-                          onSelected: (val) => setState(() => _tempUnit = val),
+                          onSelected: (val) {
+                            setState(() => _tempUnit = val);
+                            _saveStringSetting('pref_temp_unit', val);
+                          },
                         ),
                       ),
                     ],
                   ),
                 ],
 
-                // 3. NOTIFICATIONS & ALERTS
+                // 3. NOTIFICATIONS & ALERTS (SharedPreferences)
                 if (_matchesSearch(
                   'Notifications Alerts Push Email SMS Quiet Hours Do Not Disturb',
                 )) ...[
@@ -505,8 +682,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         value: _masterNotifications,
-                        onChanged: (val) =>
-                            setState(() => _masterNotifications = val),
+                        onChanged: (val) {
+                          setState(() => _masterNotifications = val);
+                          _saveBoolSetting('pref_master_notif', val);
+                        },
                       ),
                       if (_masterNotifications) ...[
                         _buildDivider(),
@@ -520,8 +699,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           value: _alertNotifications,
-                          onChanged: (val) =>
-                              setState(() => _alertNotifications = val),
+                          onChanged: (val) {
+                            setState(() => _alertNotifications = val);
+                            _saveBoolSetting('pref_alert_notif', val);
+                          },
                         ),
                         _buildDivider(),
                         SwitchListTile(
@@ -534,8 +715,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           ),
                           value: _updateNotifications,
-                          onChanged: (val) =>
-                              setState(() => _updateNotifications = val),
+                          onChanged: (val) {
+                            setState(() => _updateNotifications = val);
+                            _saveBoolSetting('pref_update_notif', val);
+                          },
                         ),
                         _buildDivider(),
                         ListTile(
@@ -556,8 +739,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             title: 'Preferred Delivery',
                             options: const ['Push', 'Email', 'SMS'],
                             currentSelections: _deliveryMethods,
-                            onChanged: (selected) =>
-                                setState(() => _deliveryMethods = selected),
+                            onChanged: (selected) {
+                              setState(() => _deliveryMethods = selected);
+                              _saveListSetting(
+                                'pref_delivery_methods',
+                                selected.toList(),
+                              );
+                            },
                           ),
                         ),
                       ],
@@ -581,7 +769,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           style: TextStyle(fontSize: 11, color: Colors.grey),
                         ),
                         value: _quietHours,
-                        onChanged: (val) => setState(() => _quietHours = val),
+                        onChanged: (val) {
+                          setState(() => _quietHours = val);
+                          _saveBoolSetting('pref_quiet_hours', val);
+                        },
                       ),
                     ],
                   ),
@@ -658,8 +849,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             'WiFi Only',
                           ],
                           currentValue: _syncInterval,
-                          onSelected: (val) =>
-                              setState(() => _syncInterval = val),
+                          onSelected: (val) {
+                            setState(() => _syncInterval = val);
+                            _saveStringSetting('pref_sync_interval', val);
+                          },
                         ),
                       ),
                     ],
@@ -761,7 +954,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               title: 'Log Out',
                               content: 'Are you sure you want to log out?',
                               confirmText: 'Log Out',
-                              onConfirm: () {},
+                              onConfirm: _handleLogout,
                             ),
                             child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -805,7 +998,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   'Permanently remove all data and linked hardware?',
                               confirmText: 'Delete',
                               isDestructive: true,
-                              onConfirm: () {},
+                              onConfirm: _handleDeleteAccount,
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,

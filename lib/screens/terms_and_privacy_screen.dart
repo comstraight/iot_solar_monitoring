@@ -1,75 +1,158 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 
-class TermsAndPrivacyScreen extends StatelessWidget {
+class TermsAndPrivacyScreen extends StatefulWidget {
   const TermsAndPrivacyScreen({super.key});
 
+  @override
+  State<TermsAndPrivacyScreen> createState() => _TermsAndPrivacyScreenState();
+}
+
+class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
   static const Color darkGreen = Color(0xFF092508);
   static const Color midGreen = Color(0xFF20831B);
   static const Color borderGreen = Color(0xFF20341E);
   static const Color pageBg = Colors.white;
 
+  Timer? _pollingTimer;
+  bool _isLoading = true;
+
+  // CHECK INTERVAL SETTING:
+  // For testing: Duration(seconds: 1)
+  // For deployment: Change to Duration(hours: 24)
+  static const Duration _checkInterval = Duration(
+    seconds: 1,
+  ); // <-- CHANGE TO Duration(hours: 24) FOR DEPLOYMENT
+
+  String _lastUpdated = 'Loading...';
+  String _copyright = '© 2026 Solar Telemetry System';
+  List<Map<String, String>> _sections = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchTermsFromFirebase();
+
+    // Setup periodic polling interval
+    _pollingTimer = Timer.periodic(_checkInterval, (_) {
+      _fetchTermsFromFirebase();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollingTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchTermsFromFirebase() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('settings')
+          .doc('terms_and_privacy')
+          .get();
+
+      if (doc.exists && doc.data() != null) {
+        final data = doc.data()!;
+        final rawSections = data['sections'] as List<dynamic>? ?? [];
+
+        final List<Map<String, String>> parsedSections = rawSections.map((sec) {
+          final map = sec as Map<String, dynamic>;
+          return {
+            'title': map['title']?.toString() ?? '',
+            'content': map['content']?.toString() ?? '',
+          };
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _lastUpdated = data['lastUpdated'] ?? 'Unknown Date';
+            _copyright = data['copyright'] ?? '© 2026 Solar Telemetry System';
+            _sections = parsedSections;
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: pageBg,
-      body: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          _buildTopHeader(context),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator(color: midGreen))
+          : ListView(
+              padding: EdgeInsets.zero,
               children: [
-                const SizedBox(height: 16),
-                const Text(
-                  'Last Updated: April 2026',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey,
+                _buildTopHeader(context),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 16),
+                      Text(
+                        'Last Updated: $_lastUpdated',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_sections.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32.0),
+                          child: Center(
+                            child: Text(
+                              'No terms or privacy policies found.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ),
+                        )
+                      else
+                        ..._sections.map(
+                          (sec) => _SectionWidget(
+                            title: sec['title'] ?? '',
+                            content: sec['content'] ?? '',
+                          ),
+                        ),
+                      const SizedBox(height: 32),
+                      Center(
+                        child: Text(
+                          _copyright,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                _SectionWidget(
-                  title: 'Terms of Service',
-                  content:
-                      'By utilizing this Solar Health and Monitoring platform, you agree to transmit telemetry data from your authorized microcontroller nodes (such as ESP32/Arduino). The platform is designed for solar diagnostics, real-time metrics tracking, and automated fault analysis.',
-                ),
-                _SectionWidget(
-                  title: 'Hardware Telemetry',
-                  content:
-                      'Collected metrics (voltage, current, power output, and panel temperature) are processed to calculate efficiency and detect hardware degradation. No telemetry metrics or sensor logs are shared or sold to external third parties.',
-                ),
-                _SectionWidget(
-                  title: 'Privacy Policy',
-                  content:
-                      'We collect minimal identity details required to manage authenticated device nodes. You maintain full ownership of your data and may request account or hardware data deletion at any time via Settings.',
-                ),
-                const SizedBox(height: 32),
-                Center(
-                  child: Text(
-                    '© 2026 Solar Telemetry System',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade500,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
   Widget _buildTopHeader(BuildContext context) {
+    final topPadding = MediaQuery.paddingOf(context).top;
     return Container(
-      padding: const EdgeInsets.only(top: 45, left: 16, right: 16, bottom: 25),
+      padding: EdgeInsets.only(
+        top: topPadding + 16,
+        left: 16,
+        right: 16,
+        bottom: 25,
+      ),
       decoration: const BoxDecoration(
         color: darkGreen,
         borderRadius: BorderRadius.only(

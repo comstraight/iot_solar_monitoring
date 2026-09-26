@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class EditableProfileScreen extends StatefulWidget {
   const EditableProfileScreen({super.key});
@@ -16,6 +18,7 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
   late TextEditingController _phoneController;
   late TextEditingController _studentIdController;
 
+  bool _isFetching = true;
   bool _isLoading = false;
 
   static const Color darkGreen = Color(0xFF092508);
@@ -24,13 +27,50 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
   static const Color lightGreenBg = Color(0xFFE8F5E9);
   static const Color pageBg = Colors.white;
 
+  final User? _currentUser = FirebaseAuth.instance.currentUser;
+
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: 'Andrei Esporlas');
-    _emailController = TextEditingController(text: 'andrei@example.com');
-    _phoneController = TextEditingController(text: '+63 912 345 6789');
-    _studentIdController = TextEditingController(text: '423002684');
+    _nameController = TextEditingController();
+    _emailController = TextEditingController();
+    _phoneController = TextEditingController();
+    _studentIdController = TextEditingController();
+
+    _loadUserProfile();
+  }
+
+  /// READ OPERATION: Fetch current user profile data from Firestore
+  Future<void> _loadUserProfile() async {
+    if (_currentUser == null) {
+      if (mounted) setState(() => _isFetching = false);
+      return;
+    }
+
+    try {
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_currentUser.uid)
+          .get();
+
+      if (docSnapshot.exists && docSnapshot.data() != null) {
+        final data = docSnapshot.data()!;
+        _nameController.text = data['name'] ?? _currentUser.displayName ?? '';
+        _emailController.text = data['email'] ?? _currentUser.email ?? '';
+        _phoneController.text = data['phone'] ?? '';
+        _studentIdController.text = data['studentId'] ?? '';
+      } else {
+        // Pre-fill from Auth if Firestore document does not exist yet
+        _nameController.text = _currentUser.displayName ?? '';
+        _emailController.text = _currentUser.email ?? '';
+      }
+    } catch (e) {
+      _showSnackBar('Error loading profile details.', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _isFetching = false);
+      }
+    }
   }
 
   @override
@@ -42,36 +82,79 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
     super.dispose();
   }
 
-  void _handleSave() {
-    if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
+  /// WRITE OPERATION: Update user profile in Firestore & Firebase Auth
+  Future<void> _handleSave() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-      Future.delayed(const Duration(seconds: 1, milliseconds: 500), () {
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: darkGreen,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            content: const Row(
-              children: [
-                Icon(
-                  CupertinoIcons.checkmark_circle_fill,
-                  color: Color(0xFF00FF22),
-                ),
-                SizedBox(width: 10),
-                Text('Profile changes saved successfully!'),
-              ],
-            ),
-          ),
-        );
-        Navigator.pop(context);
-      });
+    if (_currentUser == null) {
+      _showSnackBar('No active user session.', isError: true);
+      return;
     }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final String updatedName = _nameController.text.trim();
+      final String updatedEmail = _emailController.text.trim();
+      final String updatedPhone = _phoneController.text.trim();
+      final String updatedStudentId = _studentIdController.text.trim();
+
+      // 1. Update Firestore Document (Merge ensures non-editable fields remain intact)
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(_currentUser.uid)
+          .set({
+            'name': updatedName,
+            'email': updatedEmail,
+            'phone': updatedPhone,
+            'studentId': updatedStudentId,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      // 2. Update Firebase Auth Display Name
+      await _currentUser.updateDisplayName(updatedName);
+
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+
+      _showSnackBar('Profile changes saved successfully!');
+      Navigator.pop(context);
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showSnackBar(
+        e.message ?? 'Failed to save profile changes.',
+        isError: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showSnackBar('An unexpected error occurred.', isError: true);
+    }
+  }
+
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.red[800] : darkGreen,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        content: Row(
+          children: [
+            Icon(
+              isError
+                  ? CupertinoIcons.exclamationmark_circle_fill
+                  : CupertinoIcons.checkmark_circle_fill,
+              color: isError ? Colors.white : const Color(0xFF00FF22),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(message, style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -82,143 +165,149 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
         padding: EdgeInsets.zero,
         children: [
           _buildTopHeader(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 16),
-                  _buildSectionHeader('Edit Details'),
-                  _buildFloatingCard(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildInputLabel('FULL NAME'),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _nameController,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
+          if (_isFetching)
+            const Padding(
+              padding: EdgeInsets.only(top: 80.0),
+              child: Center(child: CircularProgressIndicator(color: midGreen)),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    _buildSectionHeader('Edit Details'),
+                    _buildFloatingCard(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildInputLabel('FULL NAME'),
+                              const SizedBox(height: 6),
+                              TextFormField(
+                                controller: _nameController,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                decoration: _buildInputDecoration(
+                                  hint: 'Full Name',
+                                  prefixIcon: CupertinoIcons.person_fill,
+                                ),
+                                validator: (val) =>
+                                    val == null || val.trim().isEmpty
+                                    ? 'Name cannot be empty'
+                                    : null,
                               ),
-                              decoration: _buildInputDecoration(
-                                hint: 'Full Name',
-                                prefixIcon: CupertinoIcons.person_fill,
+                              const SizedBox(height: 16),
+                              _buildInputLabel('EMAIL ADDRESS'),
+                              const SizedBox(height: 6),
+                              TextFormField(
+                                controller: _emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                decoration: _buildInputDecoration(
+                                  hint: 'Email Address',
+                                  prefixIcon: CupertinoIcons.mail_solid,
+                                ),
+                                validator: (val) {
+                                  if (val == null || val.trim().isEmpty) {
+                                    return 'Email cannot be empty';
+                                  }
+                                  if (!val.contains('@')) {
+                                    return 'Invalid email address';
+                                  }
+                                  return null;
+                                },
                               ),
-                              validator: (val) =>
-                                  val == null || val.trim().isEmpty
-                                  ? 'Name cannot be empty'
-                                  : null,
-                            ),
-                            const SizedBox(height: 16),
-                            _buildInputLabel('EMAIL ADDRESS'),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                              const SizedBox(height: 16),
+                              _buildInputLabel('PHONE NUMBER'),
+                              const SizedBox(height: 6),
+                              TextFormField(
+                                controller: _phoneController,
+                                keyboardType: TextInputType.phone,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                decoration: _buildInputDecoration(
+                                  hint: 'Phone Number',
+                                  prefixIcon: CupertinoIcons.phone_fill,
+                                ),
+                                validator: (val) =>
+                                    val == null || val.trim().isEmpty
+                                    ? 'Phone number cannot be empty'
+                                    : null,
                               ),
-                              decoration: _buildInputDecoration(
-                                hint: 'Email Address',
-                                prefixIcon: CupertinoIcons.mail_solid,
+                              const SizedBox(height: 16),
+                              _buildInputLabel('STUDENT / USER ID'),
+                              const SizedBox(height: 6),
+                              TextFormField(
+                                controller: _studentIdController,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                                decoration: _buildInputDecoration(
+                                  hint: 'User ID',
+                                  prefixIcon:
+                                      CupertinoIcons.person_badge_minus_fill,
+                                ),
+                                validator: (val) =>
+                                    val == null || val.trim().isEmpty
+                                    ? 'User ID cannot be empty'
+                                    : null,
                               ),
-                              validator: (val) {
-                                if (val == null || val.trim().isEmpty) {
-                                  return 'Email cannot be empty';
-                                }
-                                if (!val.contains('@')) {
-                                  return 'Invalid email address';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 16),
-                            _buildInputLabel('PHONE NUMBER'),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _phoneController,
-                              keyboardType: TextInputType.phone,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                              decoration: _buildInputDecoration(
-                                hint: 'Phone Number',
-                                prefixIcon: CupertinoIcons.phone_fill,
-                              ),
-                              validator: (val) =>
-                                  val == null || val.trim().isEmpty
-                                  ? 'Phone number cannot be empty'
-                                  : null,
-                            ),
-                            const SizedBox(height: 16),
-                            _buildInputLabel('STUDENT / USER ID'),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _studentIdController,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                              decoration: _buildInputDecoration(
-                                hint: 'User ID',
-                                prefixIcon:
-                                    CupertinoIcons.person_badge_minus_fill,
-                              ),
-                              validator: (val) =>
-                                  val == null || val.trim().isEmpty
-                                  ? 'User ID cannot be empty'
-                                  : null,
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: darkGreen,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: _isLoading ? null : _handleSave,
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Save Profile Changes',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: darkGreen,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _isLoading ? null : _handleSave,
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Save Profile Changes',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

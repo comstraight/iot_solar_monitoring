@@ -1,4 +1,65 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+/// Auth Service handling direct HTTP REST requests with Flask backend
+class AuthService {
+  // Update this URL:
+  // - Android Emulator: 'http://10.0.2.2:5000'
+  // - iOS Simulator: 'http://127.0.0.1:5000'
+  // - Physical Device: 'http://<your-pi-ip>:5000' or your Cloudflare Tunnel URL
+  static const String baseUrl = 'http://10.0.2.2:5000';
+
+  /// Step 1: Request 6-digit OTP to be sent to user's email
+  static Future<void> sendVerificationCode(String email) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/send-otp'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email}),
+    );
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Failed to send verification code.');
+    }
+  }
+
+  /// Step 2: Validate 6-digit OTP with backend
+  static Future<void> verifyCode(String email, String code) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/verify-otp'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'code': code}),
+    );
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Invalid or expired code.');
+    }
+  }
+
+  /// Step 3: Trigger password update in Firebase Auth
+  static Future<void> resetPassword(
+    String email,
+    String code,
+    String newPassword,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/auth/reset-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'email': email,
+        'code': code,
+        'new_password': newPassword,
+      }),
+    );
+
+    final data = jsonDecode(response.body);
+    if (response.statusCode != 200) {
+      throw Exception(data['error'] ?? 'Failed to reset password.');
+    }
+  }
+}
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -37,41 +98,84 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     super.dispose();
   }
 
-  void _handleNextStep() {
-    if (_formKey.currentState?.validate() ?? false) {
-      setState(() => _isLoading = true);
+  // Handle flow execution according to current active step
+  Future<void> _handleNextStep() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
-      Future.delayed(const Duration(seconds: 1, milliseconds: 500), () {
+    setState(() => _isLoading = true);
+
+    try {
+      if (_currentStep == 0) {
+        // STEP 1: Send reset code to email
+        await AuthService.sendVerificationCode(_emailController.text.trim());
         if (!mounted) return;
-        setState(() => _isLoading = false);
 
-        if (_currentStep < 2) {
-          setState(() {
-            _currentStep++;
-            _formKey.currentState?.reset();
-          });
-        } else {
-          // Final Password Reset Success
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              behavior: SnackBarBehavior.floating,
-              backgroundColor: darkGreen,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              content: const Row(
-                children: [
-                  Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
-                  SizedBox(width: 12),
-                  Text('Password reset successfully! You can now sign in.'),
-                ],
-              ),
-            ),
-          );
-          Navigator.maybePop(context);
-        }
-      });
+        setState(() {
+          _currentStep = 1;
+          _formKey.currentState?.reset();
+        });
+      } else if (_currentStep == 1) {
+        // STEP 2: Verify the 6-digit code
+        await AuthService.verifyCode(
+          _emailController.text.trim(),
+          _codeController.text.trim(),
+        );
+        if (!mounted) return;
+
+        setState(() {
+          _currentStep = 2;
+          _formKey.currentState?.reset();
+        });
+      } else if (_currentStep == 2) {
+        // STEP 3: Save new password
+        await AuthService.resetPassword(
+          _emailController.text.trim(),
+          _codeController.text.trim(),
+          _newPasswordController.text.trim(),
+        );
+        if (!mounted) return;
+
+        _showSnackBar(
+          message: 'Password reset successfully! You can now sign in.',
+          isError: false,
+        );
+        Navigator.maybePop(context);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar(
+        message: e.toString().replaceAll('Exception: ', ''),
+        isError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  void _showSnackBar({required String message, bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.red.shade900 : darkGreen,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        content: Row(
+          children: [
+            Icon(
+              isError
+                  ? Icons.error_outline_rounded
+                  : Icons.check_circle_rounded,
+              color: isError ? Colors.white : Colors.greenAccent,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(message, style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
