@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,7 +10,8 @@ class InitialSetupScreen extends StatefulWidget {
   State<InitialSetupScreen> createState() => _InitialSetupScreenState();
 }
 
-class _InitialSetupScreenState extends State<InitialSetupScreen> {
+class _InitialSetupScreenState extends State<InitialSetupScreen>
+    with AutomaticKeepAliveClientMixin {
   // Theme Color Constants
   static const Color darkGreen = Color(0xFF092508);
   static const Color midGreen = Color(0xFF20831B);
@@ -18,12 +20,53 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
 
   bool _isConfiguring = false;
 
+  // Cached Stream Instance & Auth Subscription
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _panelsStream;
+  StreamSubscription<User?>? _authSubscription;
+  String? _currentUid;
+
+  @override
+  bool get wantKeepAlive => true; // Prevents state disposal when navigating
+
+  @override
+  void initState() {
+    super.initState();
+    _listenToAuthAndInitStream();
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _listenToAuthAndInitStream() {
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user?.uid != _currentUid) {
+        setState(() {
+          _currentUid = user?.uid;
+          if (_currentUid != null) {
+            // Optimized with includeMetadataChanges: false to ignore local metadata-only triggers
+            _panelsStream = FirebaseFirestore.instance
+                .collection('users')
+                .doc(_currentUid)
+                .collection('panels')
+                .snapshots(includeMetadataChanges: false);
+          } else {
+            _panelsStream = null;
+          }
+        });
+      }
+    });
+  }
+
   // Helper SnackBar for visual feedback
   void _showSnackBar(
     BuildContext context,
     String message, {
     bool isError = false,
   }) {
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -54,270 +97,102 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
   }
 
   void _showAddPanelWizard(BuildContext context) {
-    final formKey = GlobalKey<FormState>();
-    final panelNameController = TextEditingController();
-    final capacityController = TextEditingController();
-    final nodeIdController = TextEditingController();
+    if (_currentUid == null) {
+      _showSnackBar(
+        context,
+        'You must be logged in to claim a device.',
+        isError: true,
+      );
+      return;
+    }
 
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-        ),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: cardBg,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-          ),
-          padding: const EdgeInsets.all(24.0),
-          child: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 5,
-                      margin: const EdgeInsets.only(bottom: 24),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                  const Text(
-                    'Link Solar Hardware',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: darkGreen,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Configure your solar array telemetry node.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 28),
+      builder: (modalContext) => _AddPanelBottomSheet(
+        onSubmitted: (panelName, capacity, nodeId) async {
+          Navigator.pop(modalContext); // Close bottom sheet
+          setState(() {
+            _isConfiguring = true;
+          });
 
-                  _buildModernTextField(
-                    controller: panelNameController,
-                    label: 'Panel Identifier',
-                    hint: 'e.g., Roof Array - Panel 3',
-                    icon: Icons.solar_power_rounded,
-                    validator: (val) => val == null || val.trim().isEmpty
-                        ? 'Please give your panel a name'
-                        : null,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildModernTextField(
-                    controller: capacityController,
-                    label: 'Rated Max Capacity (Watts)',
-                    hint: 'e.g., 300',
-                    icon: Icons.bolt_rounded,
-                    keyboardType: TextInputType.number,
-                    validator: (val) => val == null || val.trim().isEmpty
-                        ? 'Enter rated wattage'
-                        : null,
-                  ),
-                  const SizedBox(height: 16),
-                  _buildModernTextField(
-                    controller: nodeIdController,
-                    label: 'Microcontroller Node ID',
-                    hint: 'e.g., SOLAR-3C71BF',
-                    icon: Icons.developer_board_rounded,
-                    validator: (val) => val == null || val.trim().isEmpty
-                        ? 'Enter hardware Device ID'
-                        : null,
-                  ),
+          try {
+            // Firestore Transaction ensures atomic read-and-write operation
+            await FirebaseFirestore.instance.runTransaction((
+              transaction,
+            ) async {
+              final deviceRef = FirebaseFirestore.instance
+                  .collection('devices')
+                  .doc(nodeId);
 
-                  const SizedBox(height: 28),
+              final docSnap = await transaction.get(deviceRef);
 
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: darkGreen,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      onPressed: () async {
-                        if (formKey.currentState!.validate()) {
-                          final String? currentUid =
-                              FirebaseAuth.instance.currentUser?.uid;
+              if (!docSnap.exists) {
+                throw Exception(
+                  'Device ID "$nodeId" not found. Make sure the ESP32 is powered on!',
+                );
+              }
 
-                          if (currentUid == null) {
-                            _showSnackBar(
-                              context,
-                              'You must be logged in to claim a device.',
-                              isError: true,
-                            );
-                            return;
-                          }
+              final data = docSnap.data();
+              final existingOwner = data?['owner_uid'] ?? '';
 
-                          final String panelName = panelNameController.text
-                              .trim();
-                          final String capacity = capacityController.text
-                              .trim();
-                          final String nodeId = nodeIdController.text
-                              .trim()
-                              .toUpperCase();
+              if (existingOwner.toString().isNotEmpty &&
+                  existingOwner != _currentUid) {
+                throw Exception(
+                  'This device is already linked to another account.',
+                );
+              }
 
-                          Navigator.pop(context); // Close bottom sheet
-                          setState(() {
-                            _isConfiguring = true;
-                          });
+              // 1. Claim device in global devices collection
+              transaction.set(deviceRef, {
+                'owner_uid': _currentUid,
+                'device_code': nodeId,
+                'claimed_at': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
 
-                          try {
-                            // 1. Check if the device exists in Firestore `devices` collection
-                            final deviceRef = FirebaseFirestore.instance
-                                .collection('devices')
-                                .doc(nodeId);
-                            final docSnap = await deviceRef.get();
+              // 2. Save linked panel under user profile
+              final userPanelRef = FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(_currentUid)
+                  .collection('panels')
+                  .doc(nodeId);
 
-                            if (!docSnap.exists) {
-                              if (mounted) {
-                                _showSnackBar(
-                                  context,
-                                  'Device ID "$nodeId" not found. Make sure the ESP32 is powered on!',
-                                  isError: true,
-                                );
-                              }
-                              return;
-                            }
+              transaction.set(userPanelRef, {
+                'node_id': nodeId,
+                'name': panelName,
+                'capacity': double.tryParse(capacity) ?? 0.0,
+                'linked_at': FieldValue.serverTimestamp(),
+                'status': 'Online',
+              });
+            });
 
-                            final data = docSnap.data();
-                            final existingOwner = data?['owner_uid'] ?? '';
+            if (mounted) {
+              _showSnackBar(context, 'Solar Hardware Linked Successfully!');
+            }
+          } catch (e) {
+            if (mounted) {
+              final errorMsg = e is Exception
+                  ? e.toString().replaceAll('Exception: ', '')
+                  : 'Error claiming device: $e';
 
-                            // 2. Check if device is already claimed by another user
-                            if (existingOwner.isNotEmpty &&
-                                existingOwner != currentUid) {
-                              if (mounted) {
-                                _showSnackBar(
-                                  context,
-                                  'This device is already linked to another account.',
-                                  isError: true,
-                                );
-                              }
-                              return;
-                            }
-
-                            // 3. Claim device in `devices` collection
-                            await deviceRef.set({
-                              'owner_uid': currentUid,
-                              'device_code': nodeId,
-                              'claimed_at': FieldValue.serverTimestamp(),
-                            }, SetOptions(merge: true));
-
-                            // 4. Save linked panel under User's profile (`users/{uid}/panels/{nodeId}`)
-                            await FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(currentUid)
-                                .collection('panels')
-                                .doc(nodeId)
-                                .set({
-                                  'node_id': nodeId,
-                                  'name': panelName,
-                                  'capacity': double.tryParse(capacity) ?? 0.0,
-                                  'linked_at': FieldValue.serverTimestamp(),
-                                  'status': 'Online',
-                                });
-
-                            if (mounted) {
-                              _showSnackBar(
-                                context,
-                                'Solar Hardware Linked Successfully!',
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              _showSnackBar(
-                                context,
-                                'Error claiming device: $e',
-                                isError: true,
-                              );
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() {
-                                _isConfiguring = false;
-                              });
-                            }
-                          }
-                        }
-                      },
-                      child: const Text(
-                        'Initialize Telemetry Sync',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModernTextField({
-    required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
-    required String? Function(String?) validator,
-    TextInputType keyboardType = TextInputType.text,
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: keyboardType,
-      validator: validator,
-      style: const TextStyle(fontWeight: FontWeight.w500, color: darkGreen),
-      decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        labelStyle: TextStyle(color: Colors.grey.shade700, fontSize: 14),
-        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-        prefixIcon: Icon(icon, color: midGreen, size: 22),
-        filled: true,
-        fillColor: const Color(0xFFF4F7F4),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 18,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: midGreen, width: 1.5),
-        ),
+              _showSnackBar(context, errorMsg, isError: true);
+            }
+          } finally {
+            if (mounted) {
+              setState(() {
+                _isConfiguring = false;
+              });
+            }
+          }
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
       backgroundColor: pageBg,
       body: Stack(
@@ -474,10 +349,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
     );
   }
 
-  // --- MAIN SETUP STATE (DYNAMICALLY STREAMS CLAIMED HARDWARE) ---
+  // --- MAIN SETUP STATE ---
   Widget _buildSetupState(BuildContext context) {
-    final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
-
     return Column(
       key: const ValueKey('setup'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -494,17 +367,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
         ),
         const SizedBox(height: 12),
 
-        // Live stream of panels claimed by the logged-in user
-        StreamBuilder<QuerySnapshot>(
-          stream: currentUid != null
-              ? FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(currentUid)
-                    .collection('panels')
-                    .snapshots()
-              : null,
+        // Cached stream builder reference
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _panelsStream,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Center(
                 child: Padding(
                   padding: EdgeInsets.all(24),
@@ -540,7 +408,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
 
             return Column(
               children: docs.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
+                final data = doc.data();
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: _buildPanelNodeTile(
@@ -636,6 +504,201 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Standalone StatefulWidget for Modal Bottom Sheet to manage controller lifecycles safely
+class _AddPanelBottomSheet extends StatefulWidget {
+  final Function(String panelName, String capacity, String nodeId) onSubmitted;
+
+  const _AddPanelBottomSheet({required this.onSubmitted});
+
+  @override
+  State<_AddPanelBottomSheet> createState() => _AddPanelBottomSheetState();
+}
+
+class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _panelNameController;
+  late final TextEditingController _capacityController;
+  late final TextEditingController _nodeIdController;
+
+  static const Color darkGreen = Color(0xFF092508);
+  static const Color midGreen = Color(0xFF20831B);
+  static const Color cardBg = Colors.white;
+
+  @override
+  void initState() {
+    super.initState();
+    _panelNameController = TextEditingController();
+    _capacityController = TextEditingController();
+    _nodeIdController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _panelNameController.dispose();
+    _capacityController.dispose();
+    _nodeIdController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        padding: const EdgeInsets.all(24.0),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 5,
+                    margin: const EdgeInsets.only(bottom: 24),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Link Solar Hardware',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: darkGreen,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Configure your solar array telemetry node.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 28),
+
+                _buildModernTextField(
+                  controller: _panelNameController,
+                  label: 'Panel Identifier',
+                  hint: 'e.g., Roof Array - Panel 3',
+                  icon: Icons.solar_power_rounded,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Please give your panel a name'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                _buildModernTextField(
+                  controller: _capacityController,
+                  label: 'Rated Max Capacity (Watts)',
+                  hint: 'e.g., 300',
+                  icon: Icons.bolt_rounded,
+                  keyboardType: TextInputType.number,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Enter rated wattage'
+                      : null,
+                ),
+                const SizedBox(height: 16),
+                _buildModernTextField(
+                  controller: _nodeIdController,
+                  label: 'Microcontroller Node ID',
+                  hint: 'e.g., SOLAR-3C71BF',
+                  icon: Icons.developer_board_rounded,
+                  validator: (val) => val == null || val.trim().isEmpty
+                      ? 'Enter hardware Device ID'
+                      : null,
+                ),
+
+                const SizedBox(height: 28),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: darkGreen,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    onPressed: () {
+                      if (_formKey.currentState?.validate() ?? false) {
+                        widget.onSubmitted(
+                          _panelNameController.text.trim(),
+                          _capacityController.text.trim(),
+                          _nodeIdController.text.trim().toUpperCase(),
+                        );
+                      }
+                    },
+                    child: const Text(
+                      'Initialize Telemetry Sync',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModernTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    required String? Function(String?) validator,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      validator: validator,
+      style: const TextStyle(fontWeight: FontWeight.w500, color: darkGreen),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        labelStyle: TextStyle(color: Colors.grey.shade700, fontSize: 14),
+        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+        prefixIcon: Icon(icon, color: midGreen, size: 22),
+        filled: true,
+        fillColor: const Color(0xFFF4F7F4),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 20,
+          vertical: 18,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: midGreen, width: 1.5),
+        ),
       ),
     );
   }

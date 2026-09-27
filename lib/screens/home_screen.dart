@@ -40,15 +40,16 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   // Cached Telemetry Stream Instance (system_status/current document)
-  late final Stream<DocumentSnapshot> _telemetryStream;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _telemetryStream;
 
   @override
   void initState() {
     super.initState();
+    // Optimization: Initialize stream once with strict type mapping & disable metadata-only rebuilds
     _telemetryStream = FirebaseFirestore.instance
         .collection('system_status')
         .doc('current')
-        .snapshots();
+        .snapshots(includeMetadataChanges: false);
   }
 
   Future<void> _handleLogout() async {
@@ -77,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: _buildAppBar(),
       body: Container(
         color: Colors.white,
-        child: StreamBuilder<DocumentSnapshot>(
+        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: _telemetryStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
@@ -87,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             final Map<String, dynamic> telemetryData =
                 (snapshot.hasData && snapshot.data!.data() != null)
-                ? snapshot.data!.data() as Map<String, dynamic>
+                ? snapshot.data!.data()!
                 : {};
 
             // 1. Extract Battery SOC (Handles nested 'battery' map from server.py)
@@ -143,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Monitoring Header with Groups Filter Dropdown
                 _buildMonitoringHeader(groupsMap),
 
-                // Dynamic Solar Panels List
+                // Dynamic Grouped Solar Panels List
                 _buildPanelsList(panelsMap, groupsMap),
               ],
             );
@@ -322,7 +323,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Dynamic Panels List ---
+  // --- Dynamic Panels List Grouped by Sites ---
   Widget _buildPanelsList(
     Map<String, dynamic> panelsMap,
     Map<String, dynamic> groupsMap,
@@ -339,36 +340,51 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    List<Map<String, dynamic>> panelsList = panelsMap.values
+    if (groupsMap.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32.0),
+        child: Center(
+          child: Text(
+            'No groups available.',
+            style: TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+        ),
+      );
+    }
+
+    // Sort all panels by order
+    List<Map<String, dynamic>> allPanelsList = panelsMap.values
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
 
-    // Sort panels according to panel_order or order
-    panelsList.sort((a, b) {
+    allPanelsList.sort((a, b) {
       final int orderA = a['panel_order'] ?? a['order'] ?? 0;
       final int orderB = b['panel_order'] ?? b['order'] ?? 0;
       return orderA.compareTo(orderB);
     });
 
-    // Filter panels based on selected group
+    // Extract and sort group entries
+    List<MapEntry<String, Map<String, dynamic>>> groupEntries = groupsMap
+        .entries
+        .map((e) => MapEntry(e.key, Map<String, dynamic>.from(e.value as Map)))
+        .toList();
+
+    groupEntries.sort((a, b) {
+      final int orderA = a.value['group_order'] ?? a.value['order'] ?? 0;
+      final int orderB = b.value['group_order'] ?? b.value['order'] ?? 0;
+      return orderA.compareTo(orderB);
+    });
+
+    // Filter group entries if a specific group is chosen in dropdown
     if (selectedFilter != 'View All') {
-      panelsList = panelsList.where((panelData) {
-        final String? groupAttr = panelData['group'] as String?;
-        final String? groupNameAttr = panelData['group_name'] as String?;
-
-        // Resolve group_id to group_name via groupsMap
-        String? resolvedGroupName;
-        if (groupAttr != null && groupsMap.containsKey(groupAttr)) {
-          resolvedGroupName = groupsMap[groupAttr]['group_name'] as String?;
-        }
-
-        return groupAttr == selectedFilter ||
-            groupNameAttr == selectedFilter ||
-            resolvedGroupName == selectedFilter;
+      groupEntries = groupEntries.where((entry) {
+        final String groupName =
+            (entry.value['group_name'] ?? entry.value['name'] ?? '').toString();
+        return entry.key == selectedFilter || groupName == selectedFilter;
       }).toList();
     }
 
-    if (panelsList.isEmpty) {
+    if (groupEntries.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(vertical: 32.0),
         child: Center(
@@ -380,10 +396,36 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        ...panelsList.map((panelData) {
+    List<Widget> children = [];
+
+    for (var groupEntry in groupEntries) {
+      final String groupKey = groupEntry.key;
+      final Map<String, dynamic> groupData = groupEntry.value;
+      final String groupName =
+          groupData['group_name'] ?? groupData['name'] ?? 'Unnamed Group';
+
+      // Find panels belonging exclusively to this group
+      final groupPanels = allPanelsList.where((panelData) {
+        return _isPanelInGroup(panelData, groupKey, groupData);
+      }).toList();
+
+      // Header for site / group
+      children.add(_buildGroupSectionHeader(groupName));
+
+      if (groupPanels.isEmpty) {
+        children.add(
+          const Padding(
+            padding: EdgeInsets.only(bottom: 16.0, top: 4.0),
+            child: Center(
+              child: Text(
+                'No panels in this group.',
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ),
+          ),
+        );
+      } else {
+        for (var panelData in groupPanels) {
           final String name =
               panelData['panel_name'] ?? panelData['name'] ?? 'Unnamed Panel';
 
@@ -393,7 +435,6 @@ class _HomeScreenState extends State<HomeScreen> {
           final double rawPowerW = (sensorData?['output_power_w'] ?? 0.0)
               .toDouble();
 
-          // Convert W to kW if coming from output_power_w
           final double value = sensorData?['output_power_w'] != null
               ? rawPowerW / 1000.0
               : (panelData['power_kwh'] ??
@@ -402,9 +443,69 @@ class _HomeScreenState extends State<HomeScreen> {
                         0.0)
                     .toDouble();
 
-          return metricCard(title: name, value: value);
-        }),
-      ],
+          children.add(metricCard(title: name, value: value));
+        }
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
+    );
+  }
+
+  // --- Helper to verify if panel belongs to a group ---
+  bool _isPanelInGroup(
+    Map<String, dynamic> panelData,
+    String groupKey,
+    Map<String, dynamic> groupData,
+  ) {
+    final String groupName =
+        (groupData['group_name'] ?? groupData['name'] ?? '').toString();
+    final String? panelGroup = panelData['group']?.toString();
+    final String? panelGroupName = panelData['group_name']?.toString();
+
+    if (panelGroup != null && panelGroup.isNotEmpty && panelGroup == groupKey) {
+      return true;
+    }
+
+    if (groupName.isNotEmpty) {
+      if (panelGroup == groupName) return true;
+      if (panelGroupName == groupName) return true;
+    }
+
+    return false;
+  }
+
+  // --- Group Section Header Widget ---
+  Widget _buildGroupSectionHeader(String groupName) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 17, right: 17, top: 14, bottom: 8),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF20831B).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Icon(
+              CupertinoIcons.rectangle_grid_2x2,
+              size: 14,
+              color: Color(0xFF20831B),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            groupName,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -780,7 +881,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 _buildDrawerItem(
                   icon: CupertinoIcons.rectangle_grid_2x2,
-                  title: 'Edit Groups',
+                  title: 'Sites',
                   onTap: () {
                     Navigator.pop(context);
                     Navigator.push(
@@ -970,6 +1071,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-
-//partially done

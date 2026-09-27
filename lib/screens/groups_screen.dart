@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+
+// Screen Imports
 import 'initial_setup_screen.dart';
 
 // --- Data Models ---
@@ -70,7 +72,7 @@ class PanelGroup {
   ) {
     return PanelGroup(
       id: id,
-      name: data['group_name'] ?? data['name'] ?? 'Group',
+      name: data['group_name'] ?? data['name'] ?? 'Site',
       order:
           (data['group_order'] as num?)?.toInt() ??
           (data['order'] as num?)?.toInt() ??
@@ -114,9 +116,11 @@ class GroupFirestoreService {
       .collection('system_status')
       .doc('current');
 
-  /// Single Stream reading nested map structures inside system_status/current
+  /// Stream reading nested map structures inside system_status/current
   static Stream<DashboardData> getDashboardDataStream() {
-    return _statusDocRef.snapshots().map((snapshot) {
+    return _statusDocRef.snapshots(includeMetadataChanges: false).map((
+      snapshot,
+    ) {
       final data = snapshot.data() as Map<String, dynamic>? ?? {};
 
       final groupsMap = data['groups'] as Map<String, dynamic>? ?? {};
@@ -180,6 +184,16 @@ class GroupFirestoreService {
     await _statusDocRef.update({'groups.$groupId.group_name': newName});
   }
 
+  /// Write: Rename Panel in system_status/current
+  static Future<void> renamePanel(String panelId, String newName) async {
+    await _statusDocRef.update({'panels.$panelId.panel_name': newName});
+  }
+
+  /// Write: Remove Panel permanently from system_status/current
+  static Future<void> deletePanel(String panelId) async {
+    await _statusDocRef.update({'panels.$panelId': FieldValue.delete()});
+  }
+
   /// Write: Safe Delete Group and unassign member panels in system_status/current
   static Future<void> deleteGroup(String groupId, String groupName) async {
     final docSnap = await _statusDocRef.get();
@@ -190,7 +204,6 @@ class GroupFirestoreService {
       'groups.$groupId': FieldValue.delete(),
     };
 
-    // Unassign panel group references matching either the groupId or groupName
     panelsMap.forEach((panelId, panelData) {
       if (panelData is Map<String, dynamic>) {
         final pGroup = panelData['group'];
@@ -233,24 +246,27 @@ class GroupsScreen extends StatefulWidget {
 class _GroupsScreenState extends State<GroupsScreen> {
   late final Stream<DashboardData> _dashboardStream;
 
-  @override
-  void initState() {
-    super.initState();
-    _dashboardStream = GroupFirestoreService.getDashboardDataStream();
-  }
-
   String? _currentlyHoveredGroupId;
   bool _isHoveringDeleteZone = false;
   bool _isEditing = false;
 
   final Map<String, bool> _expansionMap = {};
 
+  @override
+  void initState() {
+    super.initState();
+    _dashboardStream = GroupFirestoreService.getDashboardDataStream();
+  }
+
   void _collapseAllGroups() {
     _expansionMap.updateAll((key, value) => false);
   }
 
   Future<void> _addNewGroup(List<PanelGroup> currentGroups) async {
-    final regExp = RegExp(r'^\s*group\s*(\d+)\s*$', caseSensitive: false);
+    final regExp = RegExp(
+      r'^\s*(?:site|group)\s*(\d+)\s*$',
+      caseSensitive: false,
+    );
     int maxNum = 0;
 
     for (final g in currentGroups) {
@@ -267,10 +283,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
     }
 
     final nextNum = maxNum + 1;
-    await GroupFirestoreService.addGroup(
-      'Group $nextNum',
-      currentGroups.length,
-    );
+    await GroupFirestoreService.addGroup('Site $nextNum', currentGroups.length);
   }
 
   Future<void> _showRenameDialog(PanelGroup group) async {
@@ -286,14 +299,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
             borderRadius: BorderRadius.circular(16),
           ),
           title: const Text(
-            'Rename Group',
+            'Rename Site',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
           content: TextField(
             controller: controller,
             autofocus: true,
             decoration: InputDecoration(
-              labelText: 'Group Name',
+              labelText: 'Site Name',
               labelStyle: const TextStyle(color: Color(0xFF64748B)),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -341,18 +354,162 @@ class _GroupsScreenState extends State<GroupsScreen> {
     }
   }
 
-  Future<void> _handleGroupDelete(PanelGroup group) async {
+  Future<void> _showRenamePanelDialog(PanelItem panel) async {
+    final controller = TextEditingController(text: panel.name);
+    String? newName;
+
+    try {
+      newName = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Rename Panel',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Panel Name',
+              labelStyle: const TextStyle(color: Color(0xFF64748B)),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(
+                  color: Color(0xFF16A34A),
+                  width: 1.5,
+                ),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Color(0xFF64748B)),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF16A34A),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: () {
+                final text = controller.text.trim();
+                Navigator.pop(dialogContext, text);
+              },
+              child: const Text('Save', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+
+    if (newName != null && newName.isNotEmpty) {
+      await GroupFirestoreService.renamePanel(panel.id, newName);
+    }
+  }
+
+  Future<void> _handlePanelDelete(PanelItem panel) async {
     final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
-          'Delete Group',
+          'Remove Panel',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
         content: Text(
-          'Are you sure you want to delete "${group.name}"? All member panels will be moved to UNGROUPED.',
+          'Are you sure you want to remove "${panel.name}"? Telemetry data for this panel will no longer be saved or accepted.',
+          style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF64748B)),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await GroupFirestoreService.deletePanel(panel.id);
+    }
+  }
+
+  Future<void> _handleGroupDelete(PanelGroup group) async {
+    if (group.panels.isNotEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text(
+            'Cannot Delete Site',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          content: Text(
+            '${group.name} contains ${group.panels.length} panel(s). Panels must remain assigned to a site. Please move all panels to another site before deleting this site.',
+            style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF16A34A),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('OK', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Delete Site',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
+        content: Text(
+          'Are you sure you want to delete "${group.name}"?',
           style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
         ),
         actions: [
@@ -383,6 +540,57 @@ class _GroupsScreenState extends State<GroupsScreen> {
     }
   }
 
+  Future<void> _confirmAndMovePanel({
+    required PanelItem panel,
+    required PanelGroup targetGroup,
+  }) async {
+    if (panel.groupId == targetGroup.id) return;
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Move Panel',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        ),
+        content: Text(
+          'Are you sure to put it at ${targetGroup.name} site, frequently changing sites can cause inaccurate data overtime',
+          style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF64748B)),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF16A34A),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Confirm', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      await GroupFirestoreService.movePanelToGroup(
+        panel.id,
+        targetGroup.id,
+        targetGroup.name,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -391,9 +599,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
         child: StreamBuilder<DashboardData>(
           stream: _dashboardStream,
           builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
               return const Center(
-                child: CircularProgressIndicator(color: Color(0xFF16A34A)),
+                child: CircularProgressIndicator.adaptive(
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF16A34A)),
+                ),
               );
             }
 
@@ -407,13 +618,13 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
             return Column(
               children: [
-                // 1. STICKY HEADER BOX
+                // 1. STICKY HEADER BOX WITH BACK NAVIGATION
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 14,
+                      horizontal: 16,
+                      vertical: 12,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -430,14 +641,34 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Panel Groups',
-                          style: TextStyle(
-                            color: Color(0xFF0F172A),
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.5,
-                          ),
+                        Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  CupertinoIcons.chevron_left,
+                                  color: Color(0xFF0F172A),
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Panel Sites',
+                              style: TextStyle(
+                                color: Color(0xFF0F172A),
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                          ],
                         ),
                         Container(
                           decoration: const BoxDecoration(
@@ -487,12 +718,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // GROUPED SECTION HEADER
+                          // SITES SECTION HEADER
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text(
-                                'GROUPED',
+                                'SITES',
                                 style: TextStyle(
                                   color: Colors.black,
                                   fontSize: 10,
@@ -521,7 +752,20 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          // List of Groups
+                          // Empty State for Sites
+                          if (groups.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16.0),
+                              child: Text(
+                                'No sites created yet.',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+
+                          // List of Sites
                           ListView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
@@ -543,7 +787,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           ),
                           const SizedBox(height: 20),
 
-                          // UNGROUPED SECTION HEADER & DROP ZONE
+                          // UNASSIGNED PANELS SECTION
                           DragTarget<GroupDragData>(
                             onWillAcceptWithDetails: (details) {
                               if (!_isHoveringDeleteZone) {
@@ -560,111 +804,96 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               setState(() => _isHoveringDeleteZone = false);
                               _handleGroupDelete(details.data.group);
                             },
-                            builder: (context, candidateGroupData, rejectedGroupData) {
-                              return DragTarget<PanelDragData>(
-                                onWillAcceptWithDetails: (details) {
-                                  if (_currentlyHoveredGroupId != null) {
-                                    setState(() {
-                                      _collapseAllGroups();
-                                      _currentlyHoveredGroupId = null;
-                                    });
-                                  }
-                                  return true;
-                                },
-                                onAcceptWithDetails: (details) async {
-                                  setState(() {
-                                    _collapseAllGroups();
-                                  });
-                                  await GroupFirestoreService.movePanelToGroup(
-                                    details.data.item.id,
-                                    null,
-                                    null,
-                                  );
-                                },
-                                builder:
-                                    (
-                                      context,
-                                      candidatePanelData,
-                                      rejectedPanelData,
-                                    ) {
-                                      return AnimatedContainer(
-                                        duration: const Duration(
-                                          milliseconds: 150,
-                                        ),
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: _isHoveringDeleteZone
-                                              ? Colors.red.withValues(
-                                                  alpha: 0.08,
-                                                )
-                                              : Colors.transparent,
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                          border: _isHoveringDeleteZone
-                                              ? Border.all(
-                                                  color: Colors.redAccent,
-                                                  width: 1.5,
-                                                )
-                                              : null,
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                            builder:
+                                (
+                                  context,
+                                  candidateGroupData,
+                                  rejectedGroupData,
+                                ) {
+                                  return AnimatedContainer(
+                                    duration: const Duration(milliseconds: 150),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: _isHoveringDeleteZone
+                                          ? Colors.red.withValues(alpha: 0.08)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: _isHoveringDeleteZone
+                                          ? Border.all(
+                                              color: Colors.redAccent,
+                                              width: 1.5,
+                                            )
+                                          : null,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
                                           children: [
-                                            Row(
-                                              children: [
-                                                const Text(
-                                                  'UNGROUPED',
+                                            const Text(
+                                              'UNASSIGNED',
+                                              style: TextStyle(
+                                                color: Colors.black,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w900,
+                                                letterSpacing: 1.5,
+                                              ),
+                                            ),
+                                            if (_isHoveringDeleteZone)
+                                              const Padding(
+                                                padding: EdgeInsets.only(
+                                                  left: 8.0,
+                                                ),
+                                                child: Text(
+                                                  '— Drop site here to delete',
                                                   style: TextStyle(
-                                                    color: Colors.black,
+                                                    color: Colors.red,
                                                     fontSize: 10,
-                                                    fontWeight: FontWeight.w900,
-                                                    letterSpacing: 1.5,
+                                                    fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
-                                                if (_isHoveringDeleteZone)
-                                                  const Padding(
-                                                    padding: EdgeInsets.only(
-                                                      left: 8.0,
-                                                    ),
-                                                    child: Text(
-                                                      '— Drop group here to delete',
-                                                      style: TextStyle(
-                                                        color: Colors.red,
-                                                        fontSize: 10,
-                                                        fontWeight:
-                                                            FontWeight.bold,
-                                                      ),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 12),
-
-                                            // List of Ungrouped Panels
-                                            ListView.builder(
-                                              shrinkWrap: true,
-                                              physics:
-                                                  const NeverScrollableScrollPhysics(),
-                                              itemCount: ungroupedPanels.length,
-                                              itemBuilder: (context, index) {
-                                                final panel =
-                                                    ungroupedPanels[index];
-                                                return _buildMemberPanelTile(
-                                                  panel: panel,
-                                                  index: index,
-                                                  sourceGroupId: null,
-                                                  isIndented: false,
-                                                );
-                                              },
-                                            ),
+                                              ),
                                           ],
                                         ),
-                                      );
-                                    },
-                              );
-                            },
+                                        const SizedBox(height: 12),
+
+                                        // Empty State for Unassigned
+                                        if (ungroupedPanels.isEmpty)
+                                          const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              vertical: 8.0,
+                                            ),
+                                            child: Text(
+                                              'All panels are assigned to a site.',
+                                              style: TextStyle(
+                                                color: Colors.grey,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+
+                                        // List of Unassigned Panels
+                                        ListView.builder(
+                                          shrinkWrap: true,
+                                          physics:
+                                              const NeverScrollableScrollPhysics(),
+                                          itemCount: ungroupedPanels.length,
+                                          itemBuilder: (context, index) {
+                                            final panel =
+                                                ungroupedPanels[index];
+                                            return _buildMemberPanelTile(
+                                              panel: panel,
+                                              index: index,
+                                              sourceGroupId: null,
+                                              isIndented: false,
+                                            );
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
                           ),
 
                           const SizedBox(height: 24),
@@ -679,7 +908,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                                 color: Color(0xFF16A34A),
                               ),
                               label: const Text(
-                                'add a group',
+                                'add a site',
                                 style: TextStyle(
                                   color: Color(0xFF16A34A),
                                   fontSize: 14,
@@ -737,10 +966,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
       },
       onAcceptWithDetails: (details) async {
         _currentlyHoveredGroupId = null;
-        await GroupFirestoreService.movePanelToGroup(
-          details.data.item.id,
-          group.id,
-          group.name,
+        await _confirmAndMovePanel(
+          panel: details.data.item,
+          targetGroup: group,
         );
       },
       builder: (context, candidateData, rejectedData) {
@@ -941,68 +1169,97 @@ class _GroupsScreenState extends State<GroupsScreen> {
       ),
       child: Row(
         children: [
-          // Member Panel Drag Handle
-          Draggable<PanelDragData>(
-            data: PanelDragData(
-              item: panel,
-              sourceGroupId: sourceGroupId,
-              sourceIndex: index,
-            ),
-            onDragStarted: () {
-              setState(() {
-                _collapseAllGroups();
-              });
-            },
-            feedback: Material(
-              color: Colors.transparent,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: const Color(0xFF16A34A),
-                    width: 1.5,
-                  ),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black26, blurRadius: 8),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      CupertinoIcons.line_horizontal_3,
-                      color: Color(0xFF16A34A),
-                      size: 16,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      panel.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
+          if (_isEditing) ...[
+            InkWell(
+              onTap: () => _showRenamePanelDialog(panel),
+              borderRadius: BorderRadius.circular(6),
+              child: const Padding(
+                padding: EdgeInsets.all(4.0),
+                child: Icon(
+                  CupertinoIcons.pencil,
+                  color: Color(0xFF0284C7),
+                  size: 16,
                 ),
               ),
             ),
-            childWhenDragging: const Icon(
-              CupertinoIcons.line_horizontal_3,
-              color: Color(0xFFE2E8F0),
-              size: 16,
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => _handlePanelDelete(panel),
+              borderRadius: BorderRadius.circular(6),
+              child: const Padding(
+                padding: EdgeInsets.all(4.0),
+                child: Icon(
+                  CupertinoIcons.trash,
+                  color: Colors.redAccent,
+                  size: 16,
+                ),
+              ),
             ),
-            child: const Icon(
-              CupertinoIcons.line_horizontal_3,
-              color: Color(0xFFCBD5E1),
-              size: 16,
+            const SizedBox(width: 8),
+          ] else ...[
+            // Member Panel Drag Handle
+            Draggable<PanelDragData>(
+              data: PanelDragData(
+                item: panel,
+                sourceGroupId: sourceGroupId,
+                sourceIndex: index,
+              ),
+              onDragStarted: () {
+                setState(() {
+                  _collapseAllGroups();
+                });
+              },
+              feedback: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFF16A34A),
+                      width: 1.5,
+                    ),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 8),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        CupertinoIcons.line_horizontal_3,
+                        color: Color(0xFF16A34A),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        panel.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              childWhenDragging: const Icon(
+                CupertinoIcons.line_horizontal_3,
+                color: Color(0xFFE2E8F0),
+                size: 16,
+              ),
+              child: const Icon(
+                CupertinoIcons.line_horizontal_3,
+                color: Color(0xFFCBD5E1),
+                size: 16,
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
+            const SizedBox(width: 10),
+          ],
 
           // Active Indicator Dot
           Container(
@@ -1033,6 +1290,3 @@ class _GroupsScreenState extends State<GroupsScreen> {
     );
   }
 }
-
-
-//partially done

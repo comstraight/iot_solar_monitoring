@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:intl/intl.dart';
 
 class BarData {
   final String label;
@@ -19,8 +18,13 @@ class BarData {
 class AnalyticsRecord {
   final String title;
   final List<BarData> bars;
+  final String totalKwh;
 
-  const AnalyticsRecord({required this.title, required this.bars});
+  const AnalyticsRecord({
+    required this.title,
+    required this.bars,
+    this.totalKwh = '0.0',
+  });
 }
 
 class AnalyticsScreen extends StatefulWidget {
@@ -39,10 +43,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   static const Color cardBg = Color(0xFFEBEBEB);
 
   int _selectedTimeframe = 0; // 0: Daily, 1: Weekly, 2: Annually
-  PageController? _pageController;
+  late final PageController _pageController;
   int _activePageIndex = 0;
 
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  // Stream cache map to minimize Firestore reads and prevent reloading flickers
+  final Map<int, Stream<QuerySnapshot<Map<String, dynamic>>>> _streamCache = {};
 
   static const Map<int, List<String>> _expectedLabels = {
     0: ['3AM', '6AM', '9AM', '12NN', '3PM', '6PM', '9PM', '12AM'],
@@ -71,8 +78,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   @override
   void dispose() {
-    _pageController?.dispose();
+    _pageController.dispose();
     super.dispose();
+  }
+
+  /// Lazily fetches or reuses an active stream to optimize Firestore read costs.
+  Stream<QuerySnapshot<Map<String, dynamic>>> _getChartStream(int timeframe) {
+    return _streamCache.putIfAbsent(timeframe, () {
+      final collectionName = _getCollectionNameFor(timeframe);
+      return _db
+          .collection('analytics')
+          .doc(widget.systemId)
+          .collection(collectionName)
+          .orderBy(FieldPath.documentId)
+          .snapshots();
+    });
   }
 
   void _onTimeframeChanged(int newTimeframe) {
@@ -80,15 +100,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       setState(() {
         _selectedTimeframe = newTimeframe;
         _activePageIndex = 0;
-        _pageController?.dispose();
-        _pageController = PageController(initialPage: 0);
       });
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(0);
+      }
     }
   }
 
   void _navigateToPage(int index, int totalRecords) {
-    if (index >= 0 && index < totalRecords && _pageController != null) {
-      _pageController!.animateToPage(
+    if (index >= 0 && index < totalRecords && _pageController.hasClients) {
+      _pageController.animateToPage(
         index,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
@@ -96,8 +117,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  String _getCollectionName() {
-    switch (_selectedTimeframe) {
+  String _getCollectionNameFor(int timeframe) {
+    switch (timeframe) {
       case 1:
         return 'weekly';
       case 2:
@@ -166,11 +187,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     double ratedCeiling,
   ) {
     double peakVal = 0.0;
+    double sumVal = 0.0;
     Map<String, double> parsedValues = {};
 
     for (var label in labels) {
       double val = (rawBars[label] as num?)?.toDouble() ?? 0.0;
       parsedValues[label] = val;
+      sumVal += val;
       if (val > peakVal) peakVal = val;
     }
 
@@ -191,7 +214,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       );
     }).toList();
 
-    return AnalyticsRecord(title: title, bars: bars);
+    String formattedTotal = sumVal % 1 == 0
+        ? sumVal.toInt().toString()
+        : sumVal.toStringAsFixed(1);
+
+    return AnalyticsRecord(title: title, bars: bars, totalKwh: formattedTotal);
   }
 
   @override
@@ -283,16 +310,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Dynamic Firestore Chart Stream
+                // Cached Stream for Firestore read optimization
                 StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: _db
-                      .collection('analytics')
-                      .doc(widget.systemId)
-                      .collection(_getCollectionName())
-                      .snapshots(),
+                  stream: _getChartStream(_selectedTimeframe),
                   builder: (context, chartSnapshot) {
                     if (chartSnapshot.connectionState ==
-                        ConnectionState.waiting) {
+                            ConnectionState.waiting &&
+                        !chartSnapshot.hasData) {
                       return _buildChartLoadingState();
                     }
 
@@ -440,8 +464,44 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Total Production Header (Matching Monitoring Screen Style)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                activeRecord.totalKwh,
+                style: const TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'kWh',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Total Energy Production',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.black54,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Graph PageView Canvas
           SizedBox(
-            height: 230,
+            height: 220,
             child: PageView.builder(
               key: ValueKey<int>(_selectedTimeframe),
               controller: _pageController,
@@ -456,13 +516,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
-                          const double topHeadroom = 28.0;
+                          const double topHeadroom = 36.0;
                           final double availableBarHeight =
                               constraints.maxHeight - topHeadroom;
 
                           return Stack(
                             clipBehavior: Clip.none,
                             children: [
+                              // 5 Grid lines starting directly from bottom (0%) to topHeadroom (100%)
                               Positioned(
                                 top: topHeadroom,
                                 left: 0,
@@ -502,7 +563,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                                   : darkGreen,
                                               borderRadius:
                                                   const BorderRadius.vertical(
-                                                    top: Radius.circular(6),
+                                                    top: Radius.circular(8),
                                                   ),
                                             ),
                                           ),
@@ -561,14 +622,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Widget _buildHighlightLabel(String val) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
       color: const Color(0xFFDDDDDD),
       borderRadius: BorderRadius.circular(12),
     ),
-    child: Text(
-      val,
-      style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.bolt_rounded, size: 12, color: Colors.black54),
+        Text(
+          val,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: Colors.black,
+          ),
+        ),
+      ],
     ),
   );
 

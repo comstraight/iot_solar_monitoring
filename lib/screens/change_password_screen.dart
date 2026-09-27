@@ -1,6 +1,10 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+final _uppercaseRegex = RegExp(r'[A-Z]');
+final _lowercaseRegex = RegExp(r'[a-z]');
 
 class ChangePasswordScreen extends StatefulWidget {
   const ChangePasswordScreen({super.key});
@@ -16,23 +20,24 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
 
-  bool _isCurrentPasswordVisible = false;
-  bool _isNewPasswordVisible = false;
-  bool _isConfirmPasswordVisible = false;
+  final ValueNotifier<bool> _isCurrentPasswordVisible = ValueNotifier(false);
+  final ValueNotifier<bool> _isNewPasswordVisible = ValueNotifier(false);
+  final ValueNotifier<bool> _isConfirmPasswordVisible = ValueNotifier(false);
 
   bool _isLoading = false;
 
   static const Color darkGreen = Color(0xFF092508);
   static const Color midGreen = Color(0xFF20831B);
-  static const Color borderGreen = Color(0xFF20341E);
   static const Color lightGreenBg = Color(0xFFE8F5E9);
-  static const Color pageBg = Colors.white;
 
   @override
   void dispose() {
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
+    _isCurrentPasswordVisible.dispose();
+    _isNewPasswordVisible.dispose();
+    _isConfirmPasswordVisible.dispose();
     super.dispose();
   }
 
@@ -45,21 +50,52 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       final user = FirebaseAuth.instance.currentUser;
 
       if (user == null || user.email == null) {
-        _showSnackBar('No active user session found.', isError: true);
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+          _showSnackBar('No active user session found.', isError: true);
+        }
         return;
       }
 
-      // Step 1: Re-authenticate user with current password
+      final isEmailUser = user.providerData.any(
+        (p) => p.providerId == 'password',
+      );
+      if (!isEmailUser) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          _showSnackBar(
+            'This account uses social sign-in and cannot change password here.',
+            isError: true,
+          );
+        }
+        return;
+      }
+
+      final currentPassword = _currentPasswordController.text;
+      final newPassword = _newPasswordController.text;
+
+      if (currentPassword == newPassword) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          _showSnackBar(
+            'New password cannot be the same as current password.',
+            isError: true,
+          );
+        }
+        return;
+      }
+
+      // Re-authenticate & update
       final credential = EmailAuthProvider.credential(
         email: user.email!,
-        password: _currentPasswordController.text.trim(),
+        password: currentPassword,
       );
 
       await user.reauthenticateWithCredential(credential);
+      await user.updatePassword(newPassword);
 
-      // Step 2: Update password in Firebase Auth
-      await user.updatePassword(_newPasswordController.text.trim());
+      // Trigger OS password manager update prompt
+      TextInput.finishAutofillContext();
 
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -70,17 +106,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       if (!mounted) return;
       setState(() => _isLoading = false);
 
-      String errorMessage = 'Failed to update password. Please try again.';
-
-      if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        errorMessage = 'Current password is incorrect.';
-      } else if (e.code == 'weak-password') {
-        errorMessage = 'The new password provided is too weak.';
-      } else if (e.code == 'requires-recent-login') {
-        errorMessage = 'Session expired. Please log out and log in again.';
-      } else if (e.message != null) {
-        errorMessage = e.message!;
-      }
+      final String errorMessage = switch (e.code) {
+        'wrong-password' ||
+        'invalid-credential' => 'Current password is incorrect.',
+        'weak-password' => 'The new password provided is too weak.',
+        'requires-recent-login' =>
+          'Session expired. Please log out and log in again.',
+        'network-request-failed' =>
+          'Network error. Please check your connection.',
+        'too-many-requests' => 'Too many requests. Please try again later.',
+        _ => e.message ?? 'Failed to update password. Please try again.',
+      };
 
       _showSnackBar(errorMessage, isError: true);
     } catch (e) {
@@ -91,6 +127,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -116,177 +153,224 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+
     return Scaffold(
-      backgroundColor: pageBg,
+      backgroundColor: Colors.white,
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
-          _buildTopHeader(),
+          _HeaderWidget(topPadding: topPadding),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 16),
-                  _buildSectionHeader('Update Credentials'),
-                  _buildFloatingCard(
-                    children: [
-                      Padding(
+            child: AutofillGroup(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Update Credentials',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      elevation: 1,
+                      margin: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildInputLabel('CURRENT PASSWORD'),
+                            const _InputLabel(text: 'CURRENT PASSWORD'),
                             const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _currentPasswordController,
-                              obscureText: !_isCurrentPasswordVisible,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                              decoration: _buildInputDecoration(
-                                hint: 'Enter current password',
-                                prefixIcon: CupertinoIcons.lock_fill,
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _isCurrentPasswordVisible
-                                        ? CupertinoIcons.eye_fill
-                                        : CupertinoIcons.eye_slash_fill,
-                                    color: Colors.grey,
-                                    size: 18,
+                            ValueListenableBuilder<bool>(
+                              valueListenable: _isCurrentPasswordVisible,
+                              builder: (context, visible, _) {
+                                return TextFormField(
+                                  controller: _currentPasswordController,
+                                  obscureText: !visible,
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  keyboardType: TextInputType.visiblePassword,
+                                  textInputAction: TextInputAction.next,
+                                  autofillHints: const [AutofillHints.password],
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
                                   ),
-                                  onPressed: () => setState(
-                                    () => _isCurrentPasswordVisible =
-                                        !_isCurrentPasswordVisible,
+                                  decoration: _buildInputDecoration(
+                                    hint: 'Enter current password',
+                                    prefixIcon: CupertinoIcons.lock_fill,
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        visible
+                                            ? CupertinoIcons.eye_fill
+                                            : CupertinoIcons.eye_slash_fill,
+                                        color: Colors.grey,
+                                        size: 18,
+                                      ),
+                                      onPressed: () =>
+                                          _isCurrentPasswordVisible.value =
+                                              !visible,
+                                    ),
                                   ),
-                                ),
-                              ),
-                              validator: (val) => val == null || val.isEmpty
-                                  ? 'Please enter your current password'
-                                  : null,
-                            ),
-                            const SizedBox(height: 16),
-                            _buildInputLabel('NEW PASSWORD'),
-                            const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _newPasswordController,
-                              obscureText: !_isNewPasswordVisible,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                              decoration: _buildInputDecoration(
-                                hint: 'Enter new password',
-                                prefixIcon: CupertinoIcons.lock_shield_fill,
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _isNewPasswordVisible
-                                        ? CupertinoIcons.eye_fill
-                                        : CupertinoIcons.eye_slash_fill,
-                                    color: Colors.grey,
-                                    size: 18,
-                                  ),
-                                  onPressed: () => setState(
-                                    () => _isNewPasswordVisible =
-                                        !_isNewPasswordVisible,
-                                  ),
-                                ),
-                              ),
-                              validator: (val) {
-                                if (val == null || val.isEmpty) {
-                                  return 'Please enter a new password';
-                                }
-                                if (val.length < 8) {
-                                  return 'Password must be at least 8 characters';
-                                }
-                                if (!val.contains(RegExp(r'[A-Z]'))) {
-                                  return 'Must contain at least one uppercase letter';
-                                }
-                                if (!val.contains(RegExp(r'[a-z]'))) {
-                                  return 'Must contain at least one lowercase letter';
-                                }
-                                return null;
+                                  validator: (val) => val == null || val.isEmpty
+                                      ? 'Please enter your current password'
+                                      : null,
+                                );
                               },
                             ),
                             const SizedBox(height: 16),
-                            _buildInputLabel('CONFIRM NEW PASSWORD'),
+                            const _InputLabel(text: 'NEW PASSWORD'),
                             const SizedBox(height: 6),
-                            TextFormField(
-                              controller: _confirmPasswordController,
-                              obscureText: !_isConfirmPasswordVisible,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                              decoration: _buildInputDecoration(
-                                hint: 'Re-enter new password',
-                                prefixIcon: CupertinoIcons.lock_shield_fill,
-                                suffixIcon: IconButton(
-                                  icon: Icon(
-                                    _isConfirmPasswordVisible
-                                        ? CupertinoIcons.eye_fill
-                                        : CupertinoIcons.eye_slash_fill,
-                                    color: Colors.grey,
-                                    size: 18,
+                            ValueListenableBuilder<bool>(
+                              valueListenable: _isNewPasswordVisible,
+                              builder: (context, visible, _) {
+                                return TextFormField(
+                                  controller: _newPasswordController,
+                                  obscureText: !visible,
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  keyboardType: TextInputType.visiblePassword,
+                                  textInputAction: TextInputAction.next,
+                                  autofillHints: const [
+                                    AutofillHints.newPassword,
+                                  ],
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
                                   ),
-                                  onPressed: () => setState(
-                                    () => _isConfirmPasswordVisible =
-                                        !_isConfirmPasswordVisible,
+                                  decoration: _buildInputDecoration(
+                                    hint: 'Enter new password',
+                                    prefixIcon: CupertinoIcons.lock_shield_fill,
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        visible
+                                            ? CupertinoIcons.eye_fill
+                                            : CupertinoIcons.eye_slash_fill,
+                                        color: Colors.grey,
+                                        size: 18,
+                                      ),
+                                      onPressed: () =>
+                                          _isNewPasswordVisible.value =
+                                              !visible,
+                                    ),
                                   ),
-                                ),
-                              ),
-                              validator: (val) {
-                                if (val == null || val.isEmpty) {
-                                  return 'Please confirm your new password';
-                                }
-                                if (val != _newPasswordController.text) {
-                                  return 'Passwords do not match';
-                                }
-                                return null;
+                                  validator: (val) {
+                                    if (val == null || val.isEmpty) {
+                                      return 'Please enter a new password';
+                                    }
+                                    if (val.length < 8) {
+                                      return 'Password must be at least 8 characters';
+                                    }
+                                    if (!_uppercaseRegex.hasMatch(val)) {
+                                      return 'Must contain at least one uppercase letter';
+                                    }
+                                    if (!_lowercaseRegex.hasMatch(val)) {
+                                      return 'Must contain at least one lowercase letter';
+                                    }
+                                    return null;
+                                  },
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            const _InputLabel(text: 'CONFIRM NEW PASSWORD'),
+                            const SizedBox(height: 6),
+                            ValueListenableBuilder<bool>(
+                              valueListenable: _isConfirmPasswordVisible,
+                              builder: (context, visible, _) {
+                                return TextFormField(
+                                  controller: _confirmPasswordController,
+                                  obscureText: !visible,
+                                  autocorrect: false,
+                                  enableSuggestions: false,
+                                  keyboardType: TextInputType.visiblePassword,
+                                  textInputAction: TextInputAction.done,
+                                  autofillHints: const [
+                                    AutofillHints.newPassword,
+                                  ],
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                  onFieldSubmitted: (_) =>
+                                      _handleSavePassword(),
+                                  decoration: _buildInputDecoration(
+                                    hint: 'Re-enter new password',
+                                    prefixIcon: CupertinoIcons.lock_shield_fill,
+                                    suffixIcon: IconButton(
+                                      icon: Icon(
+                                        visible
+                                            ? CupertinoIcons.eye_fill
+                                            : CupertinoIcons.eye_slash_fill,
+                                        color: Colors.grey,
+                                        size: 18,
+                                      ),
+                                      onPressed: () =>
+                                          _isConfirmPasswordVisible.value =
+                                              !visible,
+                                    ),
+                                  ),
+                                  validator: (val) {
+                                    if (val == null || val.isEmpty) {
+                                      return 'Please confirm your new password';
+                                    }
+                                    if (val != _newPasswordController.text) {
+                                      return 'Passwords do not match';
+                                    }
+                                    return null;
+                                  },
+                                );
                               },
                             ),
                           ],
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 50,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: darkGreen,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: _isLoading ? null : _handleSavePassword,
-                      child: _isLoading
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Save New Password',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
                     ),
-                  ),
-                  const SizedBox(height: 32),
-                ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: darkGreen,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: _isLoading ? null : _handleSavePassword,
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'Save New Password',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                ),
               ),
             ),
           ),
@@ -295,18 +379,59 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     );
   }
 
-  Widget _buildInputLabel(String text) => Text(
-    text,
-    style: const TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.bold,
-      color: Colors.grey,
-    ),
-  );
+  InputDecoration _buildInputDecoration({
+    required String hint,
+    required IconData prefixIcon,
+    Widget? suffixIcon,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      prefixIcon: Icon(prefixIcon, color: midGreen, size: 18),
+      suffixIcon: suffixIcon,
+      filled: true,
+      fillColor: lightGreenBg.withValues(alpha: 0.4),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+    );
+  }
+}
 
-  Widget _buildTopHeader() {
+class _InputLabel extends StatelessWidget {
+  final String text;
+  const _InputLabel({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+        color: Colors.grey,
+      ),
+    );
+  }
+}
+
+class _HeaderWidget extends StatelessWidget {
+  final double topPadding;
+  static const Color darkGreen = Color(0xFF092508);
+  static const Color midGreen = Color(0xFF20831B);
+  static const Color borderGreen = Color(0xFF20341E);
+
+  const _HeaderWidget({required this.topPadding});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.only(top: 45, left: 16, right: 16, bottom: 25),
+      padding: EdgeInsets.only(
+        top: topPadding + 16,
+        left: 16,
+        right: 16,
+        bottom: 25,
+      ),
       decoration: const BoxDecoration(
         color: darkGreen,
         borderRadius: BorderRadius.only(
@@ -356,49 +481,6 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) => Padding(
-    padding: const EdgeInsets.only(left: 4, top: 18, bottom: 8),
-    child: Text(
-      title,
-      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-    ),
-  );
-
-  InputDecoration _buildInputDecoration({
-    required String hint,
-    required IconData prefixIcon,
-    Widget? suffixIcon,
-  }) {
-    return InputDecoration(
-      hintText: hint,
-      prefixIcon: Icon(prefixIcon, color: midGreen, size: 18),
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: lightGreenBg.withValues(alpha: 0.4),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide.none,
-      ),
-    );
-  }
-
-  Widget _buildFloatingCard({required List<Widget> children}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.2),
-            blurRadius: 3,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(children: children),
     );
   }
 }
