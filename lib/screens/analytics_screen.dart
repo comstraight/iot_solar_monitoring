@@ -1,3 +1,6 @@
+// ==============================================================================
+// analytics_screen.dart (Screen 2)
+// ==============================================================================
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -51,9 +54,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   // Stream cache map to minimize Firestore reads and prevent reloading flickers
   final Map<int, Stream<QuerySnapshot<Map<String, dynamic>>>> _streamCache = {};
 
+  // Expected labels aligned with server logic: Sun-Sat for Weekly
   static const Map<int, List<String>> _expectedLabels = {
     0: ['3AM', '6AM', '9AM', '12NN', '3PM', '6PM', '9PM', '12AM'],
-    1: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    1: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
     2: [
       'Jan',
       'Feb',
@@ -83,15 +87,32 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   /// Lazily fetches or reuses an active stream to optimize Firestore read costs.
+  /// Applies limits to strictly fetch required records:
+  /// - Daily: Last 7 days max
+  /// - Weekly: Current week max (1 doc)
+  /// - Annually: Current year max (1 doc)
   Stream<QuerySnapshot<Map<String, dynamic>>> _getChartStream(int timeframe) {
     return _streamCache.putIfAbsent(timeframe, () {
       final collectionName = _getCollectionNameFor(timeframe);
-      return _db
+      Query<Map<String, dynamic>> query = _db
           .collection('analytics')
           .doc(widget.systemId)
           .collection(collectionName)
-          .orderBy(FieldPath.documentId)
-          .snapshots();
+          .orderBy(FieldPath.documentId);
+
+      switch (timeframe) {
+        case 0:
+          query = query.limitToLast(7);
+          break;
+        case 1:
+          query = query.limitToLast(1);
+          break;
+        case 2:
+          query = query.limitToLast(1);
+          break;
+      }
+
+      return query.snapshots();
     });
   }
 
@@ -138,31 +159,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     List<AnalyticsRecord> records = [];
 
     if (_selectedTimeframe == 2) {
-      // Annual split into First Half / Second Half documents
+      // Annual split: Parse single annual document into First/Second Half cards
       for (var doc in docs) {
         final data = doc.data();
+        final yearTitle = data['title'] as String? ?? 'Year ${doc.id}';
+        final barsMap = (data['bars'] as Map<String, dynamic>?) ?? {};
 
-        // Process First Half
-        if (data.containsKey('firstHalf')) {
-          final firstHalf = data['firstHalf'] as Map<String, dynamic>? ?? {};
-          final title = firstHalf['title'] as String? ?? 'First Half';
-          final barsMap = (firstHalf['bars'] as Map<String, dynamic>?) ?? {};
-          final labels = _expectedLabels[2]!.sublist(0, 6);
-          records.add(
-            _buildRecordFromMap(title, labels, barsMap, graphCeilingLimit),
-          );
-        }
+        // 1. Process First Half (Jan - Jun)
+        final firstHalfLabels = _expectedLabels[2]!.sublist(0, 6);
+        records.add(
+          _buildRecordFromMap(
+            '$yearTitle - First Half',
+            firstHalfLabels,
+            barsMap,
+            graphCeilingLimit,
+          ),
+        );
 
-        // Process Second Half
-        if (data.containsKey('secondHalf')) {
-          final secondHalf = data['secondHalf'] as Map<String, dynamic>? ?? {};
-          final title = secondHalf['title'] as String? ?? 'Second Half';
-          final barsMap = (secondHalf['bars'] as Map<String, dynamic>?) ?? {};
-          final labels = _expectedLabels[2]!.sublist(6, 12);
-          records.add(
-            _buildRecordFromMap(title, labels, barsMap, graphCeilingLimit),
-          );
-        }
+        // 2. Process Second Half (Jul - Dec)
+        final secondHalfLabels = _expectedLabels[2]!.sublist(6, 12);
+        records.add(
+          _buildRecordFromMap(
+            '$yearTitle - Second Half',
+            secondHalfLabels,
+            barsMap,
+            graphCeilingLimit,
+          ),
+        );
       }
     } else {
       // Daily & Weekly docs
@@ -464,7 +487,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Total Production Header (Matching Monitoring Screen Style)
           Row(
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
@@ -499,7 +521,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Graph PageView Canvas
           SizedBox(
             height: 220,
             child: PageView.builder(
@@ -523,7 +544,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           return Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              // 5 Grid lines starting directly from bottom (0%) to topHeadroom (100%)
                               Positioned(
                                 top: topHeadroom,
                                 left: 0,
