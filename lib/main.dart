@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart'; // ADDED: Required for Firebase initialization
+import 'package:provider/provider.dart';
+import 'firebase_options.dart';
 import 'screens/login_screen.dart';
+import 'screens/profile_overview_screen.dart'; // Adjust path if ProfileData is in a different directory
 
-// MODIFIED: Made main() async to initialize Firebase before loading the UI
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // ADDED: Guarantees plugin bindings are ready
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  ); // ADDED: Connects Flutter app to Firebase project
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   runApp(
-    const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: SlickLoginScreen(),
+    ChangeNotifierProvider(
+      create: (_) => ProfileData(),
+      child: const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: SlickLoginScreen(),
+      ),
     ),
   );
 }

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'home_screen.dart';
 import 'forgot_password_screen.dart';
+import 'account_setup.dart'; // Import AccountSetupScreen
 
 class SlickLoginScreen extends StatefulWidget {
   const SlickLoginScreen({super.key});
@@ -101,20 +102,33 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
     try {
       if (_selectedTab == 0) {
-        // --- SIGN IN FLOW ---
+        // --- SIGN IN FLOW ---[cite: 12]
         final UserCredential credential = await FirebaseAuth.instance
             .signInWithEmailAndPassword(email: email, password: password);
 
         TextInput.finishAutofillContext();
 
+        bool isProfileIncomplete = true;
+
         if (credential.user != null) {
-          // Update last login timestamp in Firestore
-          await FirebaseFirestore.instance
+          // Update last login timestamp in Firestore[cite: 12]
+          final userDocRef = FirebaseFirestore.instance
               .collection('users')
-              .doc(credential.user!.uid)
-              .set({
-                'last_login': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
+              .doc(credential.user!.uid);
+
+          await userDocRef.set({
+            'last_login': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          // Check if user has completed their profile name (Approach 1)
+          final docSnap = await userDocRef.get();
+          if (docSnap.exists && docSnap.data() != null) {
+            final data = docSnap.data()!;
+            final name = data['name'];
+            if (name != null && name.toString().trim().isNotEmpty) {
+              isProfileIncomplete = false;
+            }
+          }
         }
 
         if (!mounted) return;
@@ -136,15 +150,21 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
           ),
         );
 
-        // ONLY NAVIGATE TO HOMESCREEN WHEN SIGNING IN
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) =>
-                const HomeScreen(currentPercentage: 20, cardCount: 1),
-          ),
-        );
+        // ROUTING BASED ON PROFILE COMPLETION STATUS
+        if (isProfileIncomplete) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const AccountSetupScreen()),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) =>
+                  const HomeScreen(currentPercentage: 20, cardCount: 1),
+            ),
+          );
+        }
       } else {
-        // --- REGISTER FLOW ---
+        // --- REGISTER FLOW ---[cite: 12]
         final UserCredential credential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(email: email, password: password);
 
@@ -163,12 +183,12 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
         TextInput.finishAutofillContext();
 
-        // Sign out immediately so Firebase session doesn't auto-login
+        // Sign out immediately so Firebase session doesn't auto-login[cite: 12]
         await FirebaseAuth.instance.signOut();
 
         if (!mounted) return;
 
-        // Reset password fields and switch tab to Sign In
+        // Reset password fields and switch tab to Sign In[cite: 12]
         _passwordController.clear();
         _confirmPasswordController.clear();
         setState(() {
@@ -578,7 +598,3 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
     );
   }
 }
-
-
-//finally done
-//firestore optimized

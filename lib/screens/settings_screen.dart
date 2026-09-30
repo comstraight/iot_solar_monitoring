@@ -8,6 +8,7 @@ import 'profile_overview_screen.dart';
 import 'security_settings_screen.dart';
 import 'feedback_screen.dart';
 import 'terms_and_privacy_screen.dart';
+import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -207,7 +208,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _handleLogout() async {
     await FirebaseAuth.instance.signOut();
     if (!mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const SlickLoginScreen()),
+      (route) => false,
+    );
   }
 
   Future<void> _handleDeleteAccount() async {
@@ -228,7 +232,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await currentUser.delete();
       }
       if (!mounted) return;
-      Navigator.of(context).popUntil((route) => route.isFirst);
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const SlickLoginScreen()),
+        (route) => false,
+      );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       final errorMessage = e.code == 'requires-recent-login'

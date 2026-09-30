@@ -12,7 +12,6 @@ class ProfileData extends ChangeNotifier {
   String role = '';
   String email = '';
   String phone = '';
-  String userId = '';
   bool isLoading = true;
 
   StreamSubscription<DocumentSnapshot>? _subscription;
@@ -31,7 +30,6 @@ class ProfileData extends ChangeNotifier {
         role = '';
         email = '';
         phone = '';
-        userId = '';
         isLoading = false;
         notifyListeners();
         return;
@@ -51,11 +49,9 @@ class ProfileData extends ChangeNotifier {
                 role = data['role'] ?? 'User';
                 email = data['email'] ?? (user.email ?? '');
                 phone = data['phone'] ?? '';
-                userId = data['userId'] ?? doc.id;
               } else {
                 // Fallback for newly registered accounts whose profile doc isn't created yet
                 email = user.email ?? '';
-                userId = uid;
                 role = 'User';
               }
               isLoading = false;
@@ -74,7 +70,6 @@ class ProfileData extends ChangeNotifier {
     String newName,
     String newEmail,
     String newPhone,
-    String newUserId,
   ) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = currentUser?.uid ?? 'profile';
@@ -83,13 +78,11 @@ class ProfileData extends ChangeNotifier {
     final oldName = name;
     final oldEmail = email;
     final oldPhone = phone;
-    final oldUserId = userId;
 
     // Update local state for immediate UI responsiveness
     name = newName;
     email = newEmail;
     phone = newPhone;
-    userId = newUserId;
     notifyListeners();
 
     try {
@@ -105,7 +98,6 @@ class ProfileData extends ChangeNotifier {
         'name': newName,
         'email': newEmail,
         'phone': newPhone,
-        'userId': newUserId,
         'role': role.isEmpty ? 'User' : role,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -118,7 +110,6 @@ class ProfileData extends ChangeNotifier {
       name = oldName;
       email = oldEmail;
       phone = oldPhone;
-      userId = oldUserId;
       notifyListeners();
 
       return false;
@@ -264,14 +255,6 @@ class ProfileOverviewScreen extends StatelessWidget {
                       value: profileData.phone.isEmpty
                           ? 'Not Provided'
                           : profileData.phone,
-                    ),
-                    _buildDivider(),
-                    _buildInfoListTile(
-                      icon: CupertinoIcons.person_badge_minus_fill,
-                      label: 'STUDENT / USER ID',
-                      value: profileData.userId.isEmpty
-                          ? 'Not Assigned'
-                          : profileData.userId,
                     ),
                   ],
                 ),
@@ -477,6 +460,3 @@ class ProfileOverviewScreen extends StatelessWidget {
     );
   }
 }
-
-//finally done
-//firestore optimized

@@ -24,14 +24,12 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _emailController;
   late final TextEditingController _phoneController;
-  late final TextEditingController _studentIdController;
 
   final ValueNotifier<bool> _isFormDirtyNotifier = ValueNotifier(false);
 
   String _initialName = '';
   String _initialEmail = '';
   String _initialPhone = '';
-  String _initialStudentId = '';
 
   bool _isFetching = true;
   bool _isLoading = false;
@@ -43,12 +41,10 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
     _nameController = TextEditingController();
     _emailController = TextEditingController();
     _phoneController = TextEditingController();
-    _studentIdController = TextEditingController();
 
     _nameController.addListener(_checkDirtyState);
     _emailController.addListener(_checkDirtyState);
     _phoneController.addListener(_checkDirtyState);
-    _studentIdController.addListener(_checkDirtyState);
 
     _loadUserProfile();
   }
@@ -57,8 +53,7 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
     final isDirty =
         _nameController.text != _initialName ||
         _emailController.text != _initialEmail ||
-        _phoneController.text != _initialPhone ||
-        _studentIdController.text != _initialStudentId;
+        _phoneController.text != _initialPhone;
 
     if (_isFormDirtyNotifier.value != isDirty) {
       _isFormDirtyNotifier.value = isDirty;
@@ -70,12 +65,10 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
     _nameController.removeListener(_checkDirtyState);
     _emailController.removeListener(_checkDirtyState);
     _phoneController.removeListener(_checkDirtyState);
-    _studentIdController.removeListener(_checkDirtyState);
 
     _nameController.dispose();
     _emailController.dispose();
     _phoneController.dispose();
-    _studentIdController.dispose();
     _isFormDirtyNotifier.dispose();
     super.dispose();
   }
@@ -111,7 +104,6 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
         _initialName = data['name'] ?? currentUser.displayName ?? '';
         _initialEmail = data['email'] ?? currentUser.email ?? '';
         _initialPhone = data['phone'] ?? '';
-        _initialStudentId = data['studentId'] ?? '';
 
         // Auto-resolve pending email if user verified it in Auth since last visit
         if (currentUser.email != null && currentUser.email != _initialEmail) {
@@ -136,7 +128,6 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
       _nameController.text = _initialName;
       _emailController.text = _initialEmail;
       _phoneController.text = _initialPhone;
-      _studentIdController.text = _initialStudentId;
     } catch (e) {
       if (mounted) {
         _showSnackBar('Error loading profile details.', isError: true);
@@ -164,7 +155,6 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
       final String updatedName = _nameController.text.trim();
       final String updatedEmail = _emailController.text.trim();
       final String updatedPhone = _phoneController.text.trim();
-      final String updatedStudentId = _studentIdController.text.trim();
 
       final bool isEmailChanged =
           _isEmailEditable &&
@@ -188,7 +178,6 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
       final Map<String, dynamic> updateData = {
         'name': updatedName,
         'phone': updatedPhone,
-        'studentId': updatedStudentId,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -214,12 +203,10 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
 
       _nameController.text = updatedName;
       _phoneController.text = updatedPhone;
-      _studentIdController.text = updatedStudentId;
       _emailController.text = updatedEmail;
 
       _initialName = updatedName;
       _initialPhone = updatedPhone;
-      _initialStudentId = updatedStudentId;
       if (!isEmailChanged) _initialEmail = updatedEmail;
 
       _checkDirtyState();
@@ -443,7 +430,8 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
                                 TextFormField(
                                   controller: _phoneController,
                                   keyboardType: TextInputType.phone,
-                                  textInputAction: TextInputAction.next,
+                                  textInputAction: TextInputAction.done,
+                                  onFieldSubmitted: (_) => _handleSave(),
                                   autofillHints: const [
                                     AutofillHints.telephoneNumber,
                                   ],
@@ -458,27 +446,6 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
                                   validator: (val) =>
                                       val == null || val.trim().isEmpty
                                       ? 'Phone number cannot be empty'
-                                      : null,
-                                ),
-                                const SizedBox(height: 16),
-                                const _InputLabel(text: 'STUDENT / USER ID'),
-                                const SizedBox(height: 6),
-                                TextFormField(
-                                  controller: _studentIdController,
-                                  textInputAction: TextInputAction.done,
-                                  onFieldSubmitted: (_) => _handleSave(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                  decoration: _buildInputDecoration(
-                                    hint: 'User ID',
-                                    prefixIcon:
-                                        CupertinoIcons.person_badge_minus_fill,
-                                  ),
-                                  validator: (val) =>
-                                      val == null || val.trim().isEmpty
-                                      ? 'User ID cannot be empty'
                                       : null,
                                 ),
                               ],
@@ -624,7 +591,3 @@ class _HeaderWidget extends StatelessWidget {
     );
   }
 }
-
-
-//finally done
-//firestore optimized
