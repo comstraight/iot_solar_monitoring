@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -42,6 +43,13 @@ class _HomeScreenState extends State<HomeScreen> {
   // Cached Telemetry Stream Instance (system_status/current document)
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _telemetryStream;
 
+  // Active subscription for aggregated time-range totals
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _analyticsSubscription;
+
+  // Real-time listener state for pre-aggregated time-range totals
+  double _aggregatedTotalKwh = 0.0;
+
   @override
   void initState() {
     super.initState();
@@ -50,11 +58,128 @@ class _HomeScreenState extends State<HomeScreen> {
         .collection('system_status')
         .doc('current')
         .snapshots(includeMetadataChanges: false);
+
+    _listenToAggregatedTotals();
+  }
+
+  @override
+  void dispose() {
+    _analyticsSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Listens to pre-aggregated Firestore analytics collection according to selected time range
+  void _listenToAggregatedTotals() {
+    // Cancel any existing active listener to prevent memory & Firestore subscription leaks
+    _analyticsSubscription?.cancel();
+
+    final DateTime now = DateTime.now();
+    final String dateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    // Sunday-based week identifier matching server.py
+    final daysSinceSun = (now.weekday % 7);
+    final sunDate = now.subtract(Duration(days: daysSinceSun));
+    // Calculate week number in year
+    final dayOfYear = int.parse(
+      now.difference(DateTime(now.year, 1, 1)).inDays.toString(),
+    );
+    final wNum = ((dayOfYear - now.weekday + 10) / 7)
+        .floor()
+        .toString()
+        .padLeft(2, '0');
+    final weekStr = "${sunDate.year}-W$wNum";
+    final yearStr = "${now.year}";
+
+    if (selectedTimeRange == 'Today') {
+      _analyticsSubscription = FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('solar_system_01')
+          .collection('daily')
+          .doc(dateStr)
+          .snapshots()
+          .listen((doc) {
+            if (doc.exists && mounted) {
+              setState(() {
+                _aggregatedTotalKwh =
+                    (doc.data()?['totalKwh'] as num?)?.toDouble() ?? 0.0;
+              });
+            }
+          });
+    } else if (selectedTimeRange == 'This Week') {
+      _analyticsSubscription = FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('solar_system_01')
+          .collection('weekly')
+          .doc(weekStr)
+          .snapshots()
+          .listen((doc) {
+            if (doc.exists && mounted) {
+              setState(() {
+                _aggregatedTotalKwh =
+                    (doc.data()?['totalKwh'] as num?)?.toDouble() ?? 0.0;
+              });
+            }
+          });
+    } else if (selectedTimeRange == 'This Month' ||
+        selectedTimeRange == 'This Year') {
+      _analyticsSubscription = FirebaseFirestore.instance
+          .collection('analytics')
+          .doc('solar_system_01')
+          .collection('annually')
+          .doc(yearStr)
+          .snapshots()
+          .listen((doc) {
+            if (doc.exists && mounted) {
+              final data = doc.data() ?? {};
+              if (selectedTimeRange == 'This Year') {
+                setState(() {
+                  _aggregatedTotalKwh =
+                      (data['totalKwh'] as num?)?.toDouble() ?? 0.0;
+                });
+              } else {
+                // Calculate sum for current month from pre-aggregated bars map
+                final monthNames = [
+                  'Jan',
+                  'Feb',
+                  'Mar',
+                  'Apr',
+                  'May',
+                  'Jun',
+                  'Jul',
+                  'Aug',
+                  'Sep',
+                  'Oct',
+                  'Nov',
+                  'Dec',
+                ];
+                final currentMonthLabel = monthNames[now.month - 1];
+                final bars = data['bars'] as Map<String, dynamic>? ?? {};
+                final monthVal = bars[currentMonthLabel];
+
+                double mKwh = 0.0;
+                if (monthVal is Map) {
+                  mKwh =
+                      (monthVal['raw_kwh'] as num?)?.toDouble() ??
+                      (monthVal['val'] as num?)?.toDouble() ??
+                      0.0;
+                } else if (monthVal is num) {
+                  mKwh = monthVal.toDouble();
+                }
+
+                setState(() {
+                  _aggregatedTotalKwh = mKwh;
+                });
+              }
+            }
+          });
+    }
   }
 
   Future<void> _handleLogout() async {
     // Close side drawer first
-    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+    if ((_scaffoldKey.currentState?.isDrawerOpen ?? false) &&
+        Navigator.canPop(context)) {
       Navigator.pop(context);
     }
 
@@ -102,13 +227,18 @@ class _HomeScreenState extends State<HomeScreen> {
                         widget.currentPercentage)
                     .toDouble();
 
-            // 2. Extract Total Generated kWh ('total_kwh_today' from server.py)
-            final double totalGenerated =
+            // 2. Fallback Total Generated kWh if aggregated doc isn't loaded yet
+            final double liveTotalToday =
                 (telemetryData['total_kwh_today'] ??
                         telemetryData['total_generated_kwh'] ??
                         telemetryData['total_kwh'] ??
                         0.0)
                     .toDouble();
+
+            final double displayTotalGenerated =
+                selectedTimeRange == 'Today' && _aggregatedTotalKwh == 0.0
+                ? liveTotalToday
+                : _aggregatedTotalKwh;
 
             // 3. Extract Peak Output kW ('peak_output_kw' from server.py)
             final double peakOutput =
@@ -137,7 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 // Top Dashboard & Metrics
-                topDashboard(soc: soc, totalGenerated: totalGenerated),
+                topDashboard(soc: soc, totalGenerated: displayTotalGenerated),
                 const SizedBox(height: 10),
                 _buildLiveMetricsRow(peakOutput, estimatedSavings),
 
@@ -417,8 +547,23 @@ class _HomeScreenState extends State<HomeScreen> {
         return _isPanelInGroup(panelData, groupKey, groupData);
       }).toList();
 
-      // Header for site / group
-      children.add(_buildGroupSectionHeader(groupName));
+      // Header for site / group (Clickable shortcut to Analytics Screen)
+      children.add(
+        InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AnalyticsScreen(
+                  initialSiteId: groupKey,
+                  initialSiteName: groupName,
+                ),
+              ),
+            );
+          },
+          child: _buildGroupSectionHeader(groupName),
+        ),
+      );
 
       if (groupPanels.isEmpty) {
         children.add(
@@ -511,6 +656,12 @@ class _HomeScreenState extends State<HomeScreen> {
               fontWeight: FontWeight.bold,
               color: Colors.black87,
             ),
+          ),
+          const Spacer(),
+          const Icon(
+            CupertinoIcons.chevron_right,
+            size: 14,
+            color: Colors.grey,
           ),
         ],
       ),
@@ -684,6 +835,7 @@ class _HomeScreenState extends State<HomeScreen> {
               setState(() {
                 selectedTimeRange = newValue;
               });
+              _listenToAggregatedTotals();
             }
           },
           items: timeRanges.map((String value) {
@@ -792,13 +944,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: CupertinoIcons.chart_pie,
                   title: 'Overview',
                   isSelected: true,
-                  onTap: () => Navigator.pop(context),
+                  onTap: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
+                  },
                 ),
                 _buildDrawerItem(
                   icon: CupertinoIcons.graph_square,
                   title: 'Metrics',
                   onTap: () {
-                    Navigator.pop(context);
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -813,7 +971,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: CupertinoIcons.plus_square,
                   title: 'Add a Setup',
                   onTap: () {
-                    Navigator.pop(context);
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -826,7 +986,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: CupertinoIcons.rectangle_grid_2x2,
                   title: 'Sites',
                   onTap: () {
-                    Navigator.pop(context);
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -841,7 +1003,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: CupertinoIcons.gear,
                   title: 'Settings',
                   onTap: () {
-                    Navigator.pop(context);
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    }
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -1014,4 +1178,5 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 
-// partial fix
+//finally done
+//firestore optimized

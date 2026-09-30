@@ -64,7 +64,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     String message, {
     bool isError = false,
   }) {
-    if (!context.mounted) return;
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -111,6 +111,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       builder: (modalContext) => _AddPanelBottomSheet(
         onSubmitted: (panelName, capacity, nodeId) async {
           Navigator.pop(modalContext); // Close bottom sheet
+          if (!mounted) return;
+
           setState(() {
             _isConfiguring = true;
           });
@@ -184,17 +186,15 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
               }, SetOptions(merge: true));
             });
 
-            if (mounted) {
-              _showSnackBar(context, 'Solar Hardware Linked Successfully!');
-            }
+            if (!mounted) return;
+            _showSnackBar(context, 'Solar Hardware Linked Successfully!');
           } catch (e) {
-            if (mounted) {
-              final errorMsg = e is Exception
-                  ? e.toString().replaceAll('Exception: ', '')
-                  : 'Error claiming device: $e';
+            if (!mounted) return;
+            final errorMsg = e is Exception
+                ? e.toString().replaceAll('Exception: ', '')
+                : 'Error claiming device: $e';
 
-              _showSnackBar(context, errorMsg, isError: true);
-            }
+            _showSnackBar(context, errorMsg, isError: true);
           } finally {
             if (mounted) {
               setState(() {
@@ -230,31 +230,52 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
             ),
             child: Align(
               alignment: Alignment.topLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              child: Row(
+                children: [
+                  if (Navigator.canPop(context))
+                    GestureDetector(
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 12),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
                     ),
-                  ],
-                ),
-                child: const Text(
-                  'Hardware Setup',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: darkGreen,
-                    letterSpacing: -0.3,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.08),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Text(
+                      'Hardware Setup',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: darkGreen,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -728,3 +749,7 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

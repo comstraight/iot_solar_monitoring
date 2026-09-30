@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -15,65 +16,119 @@ class ProfileData extends ChangeNotifier {
   bool isLoading = true;
 
   StreamSubscription<DocumentSnapshot>? _subscription;
+  StreamSubscription<User?>? _authSubscription;
 
   ProfileData() {
-    _listenToFirebaseProfile();
+    _listenToAuthAndProfile();
   }
 
-  void _listenToFirebaseProfile() {
-    // Listens to 'users/profile' document in Firestore in real time
-    _subscription = FirebaseFirestore.instance
-        .collection('users')
-        .doc('profile')
-        .snapshots()
-        .listen(
-          (doc) {
-            if (doc.exists && doc.data() != null) {
-              final data = doc.data()!;
-              name = data['name'] ?? '';
-              role = data['role'] ?? 'User';
-              email = data['email'] ?? '';
-              phone = data['phone'] ?? '';
-              userId = data['userId'] ?? doc.id;
-            }
-            isLoading = false;
-            notifyListeners();
-          },
-          onError: (_) {
-            isLoading = false;
-            notifyListeners();
-          },
-        );
+  void _listenToAuthAndProfile() {
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      _subscription?.cancel();
+
+      if (user == null) {
+        name = '';
+        role = '';
+        email = '';
+        phone = '';
+        userId = '';
+        isLoading = false;
+        notifyListeners();
+        return;
+      }
+
+      final uid = user.uid;
+
+      _subscription = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .snapshots(includeMetadataChanges: false)
+          .listen(
+            (doc) {
+              if (doc.exists && doc.data() != null) {
+                final data = doc.data()!;
+                name = data['name'] ?? '';
+                role = data['role'] ?? 'User';
+                email = data['email'] ?? (user.email ?? '');
+                phone = data['phone'] ?? '';
+                userId = data['userId'] ?? doc.id;
+              } else {
+                // Fallback for newly registered accounts whose profile doc isn't created yet
+                email = user.email ?? '';
+                userId = uid;
+                role = 'User';
+              }
+              isLoading = false;
+              notifyListeners();
+            },
+            onError: (error) {
+              debugPrint('Error listening to profile in Firestore: $error');
+              isLoading = false;
+              notifyListeners();
+            },
+          );
+    });
   }
 
-  Future<void> updateProfile(
+  Future<bool> updateProfile(
     String newName,
     String newEmail,
     String newPhone,
     String newUserId,
   ) async {
-    // Update local state for immediate feedback
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final uid = currentUser?.uid ?? 'profile';
+
+    // Store previous values for rollback if Firestore or Auth sync fails
+    final oldName = name;
+    final oldEmail = email;
+    final oldPhone = phone;
+    final oldUserId = userId;
+
+    // Update local state for immediate UI responsiveness
     name = newName;
     email = newEmail;
     phone = newPhone;
     userId = newUserId;
     notifyListeners();
 
-    // Save changes back to Firebase Firestore
     try {
-      await FirebaseFirestore.instance.collection('users').doc('profile').set({
+      // Sync email with Firebase Auth credential if email changed
+      if (currentUser != null &&
+          newEmail.isNotEmpty &&
+          newEmail.trim() != currentUser.email) {
+        await currentUser.verifyBeforeUpdateEmail(newEmail.trim());
+      }
+
+      // Save changes back to Firebase Firestore
+      await FirebaseFirestore.instance.collection('users').doc(uid).set({
         'name': newName,
         'email': newEmail,
         'phone': newPhone,
         'userId': newUserId,
-        'role': role,
+        'role': role.isEmpty ? 'User' : role,
+        'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-    } catch (_) {}
+
+      return true;
+    } catch (e) {
+      debugPrint('Failed to update profile in Firestore: $e');
+
+      // Rollback local state on error
+      name = oldName;
+      email = oldEmail;
+      phone = oldPhone;
+      userId = oldUserId;
+      notifyListeners();
+
+      return false;
+    }
   }
 
   @override
   void dispose() {
     _subscription?.cancel();
+    _authSubscription?.cancel();
     super.dispose();
   }
 }
@@ -106,16 +161,8 @@ class ProfileOverviewScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    ProfileData profileData;
-    if (profile != null) {
-      profileData = profile!;
-    } else {
-      try {
-        profileData = context.watch<ProfileData>();
-      } catch (_) {
-        profileData = ProfileData();
-      }
-    }
+    // Safely acquire ProfileData without creating ephemeral unmanaged instances in build()
+    final profileData = profile ?? context.watch<ProfileData>();
 
     if (profileData.isLoading) {
       return const Scaffold(
@@ -430,3 +477,6 @@ class ProfileOverviewScreen extends StatelessWidget {
     );
   }
 }
+
+//finally done
+//firestore optimized

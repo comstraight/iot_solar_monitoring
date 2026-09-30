@@ -228,7 +228,9 @@ class GroupFirestoreService {
     String? targetGroupId,
     String? targetGroupName,
   ) async {
-    await _statusDocRef.update({'panels.$panelId.group': targetGroupId});
+    await _statusDocRef.update({
+      'panels.$panelId.group': targetGroupId ?? targetGroupName,
+    });
   }
 
   /// Write: Reorder Groups in system_status/current
@@ -354,6 +356,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
       controller.dispose();
     }
 
+    if (!mounted) return;
+
     if (newName != null && newName.isNotEmpty) {
       await GroupFirestoreService.renameGroup(group.id, newName);
     }
@@ -422,6 +426,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
       controller.dispose();
     }
 
+    if (!mounted) return;
+
     if (newName != null && newName.isNotEmpty) {
       await GroupFirestoreService.renamePanel(panel.id, newName);
     }
@@ -463,6 +469,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ],
       ),
     );
+
+    if (!mounted) return;
 
     if (confirm == true) {
       await GroupFirestoreService.deletePanel(panel.id);
@@ -540,6 +548,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
       ),
     );
 
+    if (!mounted) return;
+
     if (confirm == true) {
       await GroupFirestoreService.deleteGroup(group.id, group.name);
     }
@@ -598,7 +608,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
                         Row(
                           children: [
                             GestureDetector(
-                              onTap: () => Navigator.pop(context),
+                              onTap: () {
+                                if (Navigator.canPop(context)) {
+                                  Navigator.pop(context);
+                                }
+                              },
                               child: Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
@@ -742,9 +756,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           const SizedBox(height: 20),
 
                           // UNASSIGNED PANELS SECTION
-                          DragTarget<GroupDragData>(
+                          DragTarget<Object>(
                             onWillAcceptWithDetails: (details) {
-                              if (!_isHoveringDeleteZone) {
+                              if (details.data is GroupDragData &&
+                                  !_isHoveringDeleteZone) {
                                 setState(() => _isHoveringDeleteZone = true);
                               }
                               return true;
@@ -754,9 +769,19 @@ class _GroupsScreenState extends State<GroupsScreen> {
                                 setState(() => _isHoveringDeleteZone = false);
                               }
                             },
-                            onAcceptWithDetails: (details) {
-                              setState(() => _isHoveringDeleteZone = false);
-                              _handleGroupDelete(details.data.group);
+                            onAcceptWithDetails: (details) async {
+                              if (details.data is GroupDragData) {
+                                setState(() => _isHoveringDeleteZone = false);
+                                final groupData = details.data as GroupDragData;
+                                _handleGroupDelete(groupData.group);
+                              } else if (details.data is PanelDragData) {
+                                final panelData = details.data as PanelDragData;
+                                await GroupFirestoreService.movePanelToGroup(
+                                  panelData.item.id,
+                                  null,
+                                  null,
+                                );
+                              }
                             },
                             builder:
                                 (
@@ -905,14 +930,26 @@ class _GroupsScreenState extends State<GroupsScreen> {
   ) {
     final int activePanels = group.panels.where((p) => p.isActive).length;
 
-    return DragTarget<GroupDragData>(
+    return DragTarget<Object>(
       onWillAcceptWithDetails: (details) => true,
       onAcceptWithDetails: (details) async {
-        if (!_isEditing && details.data.sourceIndex != groupIndex) {
-          final reordered = List<PanelGroup>.from(allGroups);
-          final movedGroup = reordered.removeAt(details.data.sourceIndex);
-          reordered.insert(groupIndex, movedGroup);
-          await GroupFirestoreService.updateGroupOrder(reordered);
+        if (details.data is GroupDragData) {
+          final groupData = details.data as GroupDragData;
+          if (!_isEditing && groupData.sourceIndex != groupIndex) {
+            final reordered = List<PanelGroup>.from(allGroups);
+            final movedGroup = reordered.removeAt(groupData.sourceIndex);
+            reordered.insert(groupIndex, movedGroup);
+            await GroupFirestoreService.updateGroupOrder(reordered);
+          }
+        } else if (details.data is PanelDragData) {
+          final panelData = details.data as PanelDragData;
+          if (panelData.sourceGroupId != group.id) {
+            await GroupFirestoreService.movePanelToGroup(
+              panelData.item.id,
+              group.id,
+              group.name,
+            );
+          }
         }
       },
       builder: (context, candidateGroupData, rejectedGroupData) {
@@ -1221,3 +1258,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

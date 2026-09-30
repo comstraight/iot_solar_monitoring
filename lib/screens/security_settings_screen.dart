@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import '../screens/change_password_screen.dart';
+import 'change_password_screen.dart';
 
 class SecuritySettingsScreen extends StatelessWidget {
   const SecuritySettingsScreen({super.key});
@@ -34,7 +35,24 @@ class SecuritySettingsScreen extends StatelessWidget {
     }
 
     if (lastChangedData is String && lastChangedData.trim().isNotEmpty) {
-      return lastChangedData;
+      try {
+        final DateTime date = DateTime.parse(lastChangedData);
+        final Duration diff = DateTime.now().difference(date);
+        if (diff.inDays >= 30) {
+          final int months = (diff.inDays / 30).floor();
+          return '$months ${months == 1 ? 'month' : 'months'} ago';
+        } else if (diff.inDays > 0) {
+          return '${diff.inDays} ${diff.inDays == 1 ? 'day' : 'days'} ago';
+        } else if (diff.inHours > 0) {
+          return '${diff.inHours} ${diff.inHours == 1 ? 'hour' : 'hours'} ago';
+        } else if (diff.inMinutes > 0) {
+          return '${diff.inMinutes} ${diff.inMinutes == 1 ? 'minute' : 'minutes'} ago';
+        } else {
+          return 'Just now';
+        }
+      } catch (_) {
+        return lastChangedData;
+      }
     }
 
     return "Haven't Changed";
@@ -42,125 +60,155 @@ class SecuritySettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: pageBg,
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc('profile')
-            .snapshots(),
-        builder: (context, snapshot) {
-          String lastChangedText = "Haven't Changed";
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.userChanges(),
+      builder: (context, authSnapshot) {
+        final currentUser =
+            authSnapshot.data ?? FirebaseAuth.instance.currentUser;
 
-          if (snapshot.hasData &&
-              snapshot.data != null &&
-              snapshot.data!.exists) {
-            final data = snapshot.data!.data() as Map<String, dynamic>?;
-            if (data != null && data.containsKey('passwordLastChanged')) {
-              lastChangedText = _formatLastChanged(data['passwordLastChanged']);
-            }
-          }
+        if (currentUser == null) {
+          return Scaffold(
+            backgroundColor: pageBg,
+            body: Center(
+              child: Text(
+                'User not logged in',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ),
+          );
+        }
 
-          return ListView(
-            padding: EdgeInsets.zero,
-            children: [
-              _buildTopHeader(context),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 16),
-                    _buildSectionHeader('Security & Password'),
-                    _buildFloatingCard(
+        return Scaffold(
+          backgroundColor: pageBg,
+          body: StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUser.uid)
+                .snapshots(includeMetadataChanges: false),
+            builder: (context, snapshot) {
+              String lastChangedText = "Haven't Changed";
+
+              if (snapshot.hasData &&
+                  snapshot.data != null &&
+                  snapshot.data!.exists) {
+                final data = snapshot.data!.data() as Map<String, dynamic>?;
+                if (data != null && data.containsKey('passwordLastChanged')) {
+                  lastChangedText = _formatLastChanged(
+                    data['passwordLastChanged'],
+                  );
+                } else if (data != null &&
+                    data.containsKey('password_timestamp')) {
+                  lastChangedText = _formatLastChanged(
+                    data['password_timestamp'],
+                  );
+                }
+              }
+
+              return ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  _buildTopHeader(context),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: lightGreenBg.withValues(alpha: 0.6),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const Icon(
-                                  CupertinoIcons.lock_fill,
-                                  color: midGreen,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'PASSWORD',
+                        const SizedBox(height: 16),
+                        _buildSectionHeader('Security & Password'),
+                        _buildFloatingCard(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: lightGreenBg.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(
+                                      CupertinoIcons.lock_fill,
+                                      color: midGreen,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        const Text(
+                                          'PASSWORD',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                            color: darkGreen,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Last changed: $lastChangedText',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  OutlinedButton(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: darkGreen,
+                                      side: const BorderSide(
+                                        color: midGreen,
+                                        width: 1.5,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 8,
+                                      ),
+                                    ),
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const ChangePasswordScreen(),
+                                        ),
+                                      );
+                                    },
+                                    child: const Text(
+                                      'Change',
                                       style: TextStyle(
-                                        fontSize: 14,
                                         fontWeight: FontWeight.bold,
-                                        color: darkGreen,
-                                        letterSpacing: 0.5,
+                                        fontSize: 12,
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Last changed: $lastChangedText',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.grey.shade600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                              OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: darkGreen,
-                                  side: const BorderSide(
-                                    color: midGreen,
-                                    width: 1.5,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
-                                  ),
-                                ),
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const ChangePasswordScreen(),
-                                    ),
-                                  );
-                                },
-                                child: const Text(
-                                  'Change',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 32),
                       ],
                     ),
-                    const SizedBox(height: 32),
-                  ],
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -257,3 +305,7 @@ class SecuritySettingsScreen extends StatelessWidget {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'monitoring_screen.dart';
 
 enum NotificationType {
-  info, // Green: App Updates, Patches, TOS, General Reminders
-  warning, // Yellow: Degradation prevention (dust, shading, cleaning)
-  critical, // Red: Fires, Sensor nonfunctional/wiring failures
+  info, // Green: Updates, Patches, TOS, General Reminders
+  warning, // Yellow: Degradation, dust, shading, high temp
+  critical, // Red: Fires, Sensor failure, wiring failure
 }
 
 class NotificationItem {
@@ -17,6 +19,9 @@ class NotificationItem {
   final String message;
   final String timestamp;
   final NotificationType type;
+  final String category;
+  final String? panelId;
+  final String targetUid;
   bool isRead;
 
   NotificationItem({
@@ -27,6 +32,9 @@ class NotificationItem {
     required this.message,
     required this.timestamp,
     required this.type,
+    this.category = 'General',
+    this.panelId,
+    this.targetUid = 'all',
     this.isRead = false,
   });
 
@@ -41,14 +49,35 @@ class NotificationItem {
       parsedType = NotificationType.warning;
     }
 
+    String formattedTime = 'Just now';
+    final createdAt = data['createdAt'];
+    if (createdAt is Timestamp) {
+      final dt = createdAt.toDate();
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 1) {
+        formattedTime = 'Just now';
+      } else if (diff.inHours < 1) {
+        formattedTime = '${diff.inMinutes}m ago';
+      } else if (diff.inDays < 1) {
+        formattedTime = '${diff.inHours}h ago';
+      } else {
+        formattedTime = '${diff.inDays}d ago';
+      }
+    } else if (data['timestamp'] != null) {
+      formattedTime = data['timestamp'].toString();
+    }
+
     return NotificationItem(
       id: doc.id,
       senderName: data['senderName'] ?? 'System Monitor',
       senderEmail: data['senderEmail'] ?? 'no-reply@solarcontrol.com',
       title: data['title'] ?? 'Notice',
       message: data['message'] ?? '',
-      timestamp: data['timestamp'] ?? 'Just now',
+      timestamp: formattedTime,
       type: parsedType,
+      category: data['category'] ?? 'System',
+      panelId: data['panelId'],
+      targetUid: data['targetUid'] ?? 'all',
       isRead: data['isRead'] ?? false,
     );
   }
@@ -64,72 +93,56 @@ class NotificationScreen extends StatefulWidget {
 class _NotificationScreenState extends State<NotificationScreen> {
   static const Color pageBg = Color(0xFFF8FAF8);
 
-  Timer? _pollingTimer;
-  bool _isLoading = true;
-
-  // CHECK INTERVAL SETTING:
-  // For testing: Duration(seconds: 1)
-  // For deployment: Change to Duration(hours: 1)
-  static const Duration _checkInterval = Duration(
-    seconds: 1,
-  ); // <-- CHANGE TO Duration(hours: 1) FOR DEPLOYMENT
-
-  // Clean initialization - zero hardcoded data
-  List<NotificationItem> _notifications = [];
+  final ScrollController _scrollController = ScrollController();
+  static const int _pageSize = 20;
+  int _currentLimit = _pageSize;
+  bool _isLoadingMore = false;
 
   @override
   void initState() {
     super.initState();
-    // Fetch directly from Firebase on launch
-    _fetchNotificationsFromFirebase();
-
-    // Setup periodic polling interval
-    _pollingTimer = Timer.periodic(_checkInterval, (_) {
-      _fetchNotificationsFromFirebase();
-    });
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    _pollingTimer?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _fetchNotificationsFromFirebase() async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('notifications')
-          .orderBy('createdAt', descending: true)
-          .get();
-
-      if (mounted) {
-        setState(() {
-          _notifications = snapshot.docs
-              .map((doc) => NotificationItem.fromFirestore(doc))
-              .toList();
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _notifications = [];
-          _isLoading = false;
-        });
-      }
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        !_isLoadingMore) {
+      setState(() {
+        _isLoadingMore = true;
+        _currentLimit += _pageSize;
+      });
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isLoadingMore = false;
+          });
+        }
+      });
     }
   }
 
-  Future<void> _markAllAsRead() async {
-    setState(() {
-      for (var item in _notifications) {
-        item.isRead = true;
-      }
-    });
+  Future<void> _markAllAsRead(List<NotificationItem> notifications) async {
+    final unreadItems = notifications.where((n) => !n.isRead).toList();
+    if (unreadItems.isEmpty) return;
 
-    for (var item in _notifications) {
-      _updateReadStatusInFirestore(item.id, true);
+    final batch = FirebaseFirestore.instance.batch();
+    for (var item in unreadItems) {
+      final docRef = FirebaseFirestore.instance
+          .collection('notifications')
+          .doc(item.id);
+      batch.update(docRef, {'isRead': true});
     }
+
+    try {
+      await batch.commit();
+    } catch (_) {}
   }
 
   Future<void> _updateReadStatusInFirestore(String id, bool isRead) async {
@@ -142,10 +155,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Future<void> _removeItem(String id) async {
-    setState(() {
-      _notifications.removeWhere((item) => item.id == id);
-    });
-
     try {
       await FirebaseFirestore.instance
           .collection('notifications')
@@ -156,7 +165,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   void _openEmailReaderSheet(NotificationItem item) {
     if (!item.isRead) {
-      setState(() => item.isRead = true);
       _updateReadStatusInFirestore(item.id, true);
     }
 
@@ -174,7 +182,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
         break;
       case NotificationType.info:
         badgeColor = const Color(0xFF16A34A);
-        badgeLabel = 'SYSTEM ANNOUNCEMENT';
+        badgeLabel = 'ANNOUNCEMENT';
         break;
     }
 
@@ -182,8 +190,8 @@ class _NotificationScreenState extends State<NotificationScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.75,
+      builder: (modalContext) => Container(
+        height: MediaQuery.of(modalContext).size.height * 0.75,
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -206,23 +214,46 @@ class _NotificationScreenState extends State<NotificationScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    badgeLabel,
-                    style: TextStyle(
-                      color: badgeColor,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        badgeLabel,
+                        style: TextStyle(
+                          color: badgeColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        item.category.toUpperCase(),
+                        style: TextStyle(
+                          color: Colors.grey.shade700,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 Text(
                   item.timestamp,
@@ -252,7 +283,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
                     backgroundColor: badgeColor,
                     radius: 18,
                     child: Text(
-                      item.senderName[0].toUpperCase(),
+                      item.senderName.isNotEmpty
+                          ? item.senderName[0].toUpperCase()
+                          : 'S',
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -298,22 +331,59 @@ class _NotificationScreenState extends State<NotificationScreen> {
                 ),
               ),
             ),
+            if (item.panelId != null && item.panelId!.isNotEmpty) ...[
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF092508),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                  icon: const Icon(
+                    CupertinoIcons.graph_circle,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  label: const Text(
+                    'Inspect Affected Panel Hardware',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  onPressed: () {
+                    final nav = Navigator.of(modalContext);
+                    nav.pop();
+                    nav.push(
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            MonitoringScreen(panelId: item.panelId!),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             SizedBox(
               width: double.infinity,
               height: 48,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF20831B),
+              child: OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFF20831B)),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  elevation: 0,
                 ),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () => Navigator.pop(modalContext),
                 child: const Text(
                   'Close Message',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: Color(0xFF20831B),
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -327,48 +397,99 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final int unreadCount = _notifications.where((n) => !n.isRead).length;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final List<String> targetUids = ['all'];
+    if (currentUser != null) {
+      targetUids.add(currentUser.uid);
+    }
 
     return Scaffold(
       backgroundColor: pageBg,
-      appBar: _buildAppBar(context, unreadCount),
-      body: _isLoading
-          ? const Center(
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('notifications')
+            .where('targetUid', whereIn: targetUids)
+            .orderBy('createdAt', descending: true)
+            .limit(_currentLimit)
+            .snapshots(includeMetadataChanges: false),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(
               child: CircularProgressIndicator(color: Color(0xFF20831B)),
-            )
-          : _notifications.isEmpty
-          ? _buildEmptyState()
-          : ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              itemCount: _notifications.length,
-              itemBuilder: (context, index) {
-                final item = _notifications[index];
-                return Dismissible(
-                  key: ValueKey(item.id),
-                  direction: DismissDirection.endToStart,
-                  onDismissed: (_) => _removeItem(item.id),
-                  background: Container(
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEE2E2),
-                      borderRadius: BorderRadius.circular(16),
+            );
+          }
+
+          final rawDocs = snapshot.data?.docs ?? [];
+          final notifications = rawDocs
+              .map((doc) => NotificationItem.fromFirestore(doc))
+              .toList();
+
+          final int unreadCount = notifications.where((n) => !n.isRead).length;
+
+          return Scaffold(
+            backgroundColor: pageBg,
+            appBar: _buildAppBar(context, unreadCount, notifications),
+            body: notifications.isEmpty
+                ? _buildEmptyState()
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
-                    child: const Icon(
-                      CupertinoIcons.trash,
-                      color: Color(0xFFDC2626),
-                      size: 22,
-                    ),
+                    itemCount: notifications.length + (_isLoadingMore ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == notifications.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16.0),
+                          child: Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Color(0xFF20831B),
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+
+                      final item = notifications[index];
+                      return Dismissible(
+                        key: ValueKey(item.id),
+                        direction: DismissDirection.endToStart,
+                        onDismissed: (_) => _removeItem(item.id),
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEE2E2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(
+                            CupertinoIcons.trash,
+                            color: Color(0xFFDC2626),
+                            size: 22,
+                          ),
+                        ),
+                        child: _buildNotificationCard(item),
+                      );
+                    },
                   ),
-                  child: _buildNotificationCard(item),
-                );
-              },
-            ),
+          );
+        },
+      ),
     );
   }
 
-  AppBar _buildAppBar(BuildContext context, int unreadCount) {
+  AppBar _buildAppBar(
+    BuildContext context,
+    int unreadCount,
+    List<NotificationItem> notifications,
+  ) {
     return AppBar(
       backgroundColor: pageBg,
       elevation: 0,
@@ -411,7 +532,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
       actions: [
         if (unreadCount > 0)
           TextButton(
-            onPressed: _markAllAsRead,
+            onPressed: () => _markAllAsRead(notifications),
             child: const Text(
               'Read All',
               style: TextStyle(
@@ -464,15 +585,39 @@ class _NotificationScreenState extends State<NotificationScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '${item.senderName} (${item.senderEmail})',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${item.senderName} (${item.senderEmail})',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          item.category,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Row(
@@ -573,3 +718,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

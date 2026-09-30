@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -85,7 +87,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         return;
       }
 
-      // Re-authenticate & update
+      // Re-authenticate & update in Firebase Auth
       final credential = EmailAuthProvider.credential(
         email: user.email!,
         password: currentPassword,
@@ -94,6 +96,28 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       await user.reauthenticateWithCredential(credential);
       await user.updatePassword(newPassword);
 
+      // Record password change timestamp in Firestore for SecuritySettingsScreen
+      try {
+        final userDocRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid);
+        await userDocRef.update({
+          'passwordLastChanged': FieldValue.serverTimestamp(),
+        });
+      } catch (e) {
+        debugPrint('Firestore timestamp update failed: $e');
+        try {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .set({
+                'passwordLastChanged': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+        } catch (innerError) {
+          debugPrint('Firestore fallback set failed: $innerError');
+        }
+      }
+
       // Trigger OS password manager update prompt
       TextInput.finishAutofillContext();
 
@@ -101,7 +125,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       setState(() => _isLoading = false);
 
       _showSnackBar('Password updated successfully!');
-      Navigator.pop(context);
+
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -449,7 +476,11 @@ class _HeaderWidget extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           GestureDetector(
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              if (Navigator.canPop(context)) {
+                Navigator.pop(context);
+              }
+            },
             child: Container(
               height: 36,
               width: 36,
@@ -484,3 +515,6 @@ class _HeaderWidget extends StatelessWidget {
     );
   }
 }
+
+//finally done
+//firestore optimized

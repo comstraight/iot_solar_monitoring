@@ -1,65 +1,8 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
-/// Auth Service handling direct HTTP REST requests with Flask backend
-class AuthService {
-  // Update this URL:
-  // - Android Emulator: 'http://10.0.2.2:5000'
-  // - iOS Simulator: 'http://127.0.0.1:5000'
-  // - Physical Device: 'http://<your-pi-ip>:5000' or your Cloudflare Tunnel URL
-  static const String baseUrl = 'http://10.0.2.2:5000';
-
-  /// Step 1: Request 6-digit OTP to be sent to user's email
-  static Future<void> sendVerificationCode(String email) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/auth/send-otp'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email}),
-    );
-
-    final data = jsonDecode(response.body);
-    if (response.statusCode != 200) {
-      throw Exception(data['error'] ?? 'Failed to send verification code.');
-    }
-  }
-
-  /// Step 2: Validate 6-digit OTP with backend
-  static Future<void> verifyCode(String email, String code) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/auth/verify-otp'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'email': email, 'code': code}),
-    );
-
-    final data = jsonDecode(response.body);
-    if (response.statusCode != 200) {
-      throw Exception(data['error'] ?? 'Invalid or expired code.');
-    }
-  }
-
-  /// Step 3: Trigger password update in Firebase Auth
-  static Future<void> resetPassword(
-    String email,
-    String code,
-    String newPassword,
-  ) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/auth/reset-password'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'code': code,
-        'new_password': newPassword,
-      }),
-    );
-
-    final data = jsonDecode(response.body);
-    if (response.statusCode != 200) {
-      throw Exception(data['error'] ?? 'Failed to reset password.');
-    }
-  }
-}
+final _emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -70,17 +13,7 @@ class ForgotPasswordScreen extends StatefulWidget {
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
-
-  // Controllers
   final _emailController = TextEditingController();
-  final _codeController = TextEditingController();
-  final _newPasswordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-
-  // Screen Step State (0: Email, 1: Verification Code, 2: New Password)
-  int _currentStep = 0;
-
-  bool _isPasswordVisible = false;
   bool _isLoading = false;
 
   // Theme Constants
@@ -92,61 +25,48 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   void dispose() {
     _emailController.dispose();
-    _codeController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  // Handle flow execution according to current active step
-  Future<void> _handleNextStep() async {
+  // Uses built-in Firebase Authentication Password Reset Email Template
+  Future<void> _handleResetPassword() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _isLoading = true);
 
+    final email = _emailController.text.trim();
+
     try {
-      if (_currentStep == 0) {
-        // STEP 1: Send reset code to email
-        await AuthService.sendVerificationCode(_emailController.text.trim());
-        if (!mounted) return;
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
 
-        setState(() {
-          _currentStep = 1;
-          _formKey.currentState?.reset();
-        });
-      } else if (_currentStep == 1) {
-        // STEP 2: Verify the 6-digit code
-        await AuthService.verifyCode(
-          _emailController.text.trim(),
-          _codeController.text.trim(),
-        );
-        if (!mounted) return;
+      TextInput.finishAutofillContext();
 
-        setState(() {
-          _currentStep = 2;
-          _formKey.currentState?.reset();
-        });
-      } else if (_currentStep == 2) {
-        // STEP 3: Save new password
-        await AuthService.resetPassword(
-          _emailController.text.trim(),
-          _codeController.text.trim(),
-          _newPasswordController.text.trim(),
-        );
-        if (!mounted) return;
+      if (!mounted) return;
 
-        _showSnackBar(
-          message: 'Password reset successfully! You can now sign in.',
-          isError: false,
-        );
-        Navigator.maybePop(context);
+      _showSnackBar(
+        message: 'Password reset link sent! Please check your email inbox.',
+        isError: false,
+      );
+
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
       }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      String errorMessage = 'Failed to send reset email.';
+      if (e.code == 'user-not-found') {
+        errorMessage = 'No account exists with this email address.';
+      } else if (e.code == 'invalid-email') {
+        errorMessage = 'Please enter a valid email address.';
+      } else if (e.message != null) {
+        errorMessage = e.message!;
+      }
+
+      _showSnackBar(message: errorMessage, isError: true);
     } catch (e) {
       if (!mounted) return;
-      _showSnackBar(
-        message: e.toString().replaceAll('Exception: ', ''),
-        isError: true,
-      );
+      _showSnackBar(message: 'An unexpected error occurred.', isError: true);
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -155,6 +75,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   void _showSnackBar({required String message, bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
@@ -187,16 +108,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded, color: darkGreen),
-          onPressed: () {
-            if (_currentStep > 0) {
-              setState(() {
-                _currentStep--;
-                _formKey.currentState?.reset();
-              });
-            } else {
-              Navigator.maybePop(context);
-            }
-          },
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
       ),
       body: SafeArea(
@@ -221,101 +133,156 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                 ],
               ),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // STEP PROGRESS BAR
-                    Row(
-                      children: List.generate(3, (index) {
-                        final isActive = index <= _currentStep;
-                        return Expanded(
-                          child: Container(
-                            height: 4,
-                            margin: EdgeInsets.only(right: index < 2 ? 6 : 0),
-                            decoration: BoxDecoration(
-                              color: isActive ? midGreen : Colors.grey.shade200,
-                              borderRadius: BorderRadius.circular(2),
+              child: AutofillGroup(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Reset Password',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: darkGreen,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Enter your account email below. We will send you an official link to reset your password.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // EMAIL FIELD
+                      const Text(
+                        'Email address',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: darkGreen,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textInputAction: TextInputAction.done,
+                        autofillHints: const [AutofillHints.email],
+                        onFieldSubmitted: (_) => _handleResetPassword(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: darkGreen,
+                          fontSize: 14,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'name@example.com',
+                          hintStyle: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 13,
+                          ),
+                          prefixIcon: const Icon(
+                            Icons.mail_outline_rounded,
+                            color: midGreen,
+                            size: 20,
+                          ),
+                          filled: true,
+                          fillColor: inputBg,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 16,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: const BorderSide(
+                              color: midGreen,
+                              width: 1.5,
                             ),
                           ),
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // STEP HEADER TITLES
-                    Text(
-                      _getStepTitle(),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: darkGreen,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _getStepSubtitle(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // STEP CONTENT FIELDS
-                    AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 250),
-                      child: _buildCurrentStepFields(),
-                    ),
-                    const SizedBox(height: 28),
-
-                    // SUBMIT / ACTION BUTTON
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: darkGreen,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
+                          ),
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: const BorderSide(
+                              color: Colors.redAccent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
-                        onPressed: _isLoading ? null : _handleNextStep,
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    _getButtonLabel(),
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.arrow_forward_rounded,
-                                    size: 18,
-                                  ),
-                                ],
-                              ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Please enter your email address';
+                          }
+                          if (!_emailRegex.hasMatch(val.trim())) {
+                            return 'Please enter a valid email address';
+                          }
+                          return null;
+                        },
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 28),
+
+                      // SEND EMAIL BUTTON
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: darkGreen,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          onPressed: _isLoading ? null : _handleResetPassword,
+                          child: _isLoading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      'Send Reset Link',
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Icon(Icons.arrow_forward_rounded, size: 18),
+                                  ],
+                                ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -324,255 +291,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       ),
     );
   }
-
-  String _getStepTitle() {
-    switch (_currentStep) {
-      case 0:
-        return 'Reset Password';
-      case 1:
-        return 'Enter Security Code';
-      case 2:
-        return 'Create New Password';
-      default:
-        return '';
-    }
-  }
-
-  String _getStepSubtitle() {
-    switch (_currentStep) {
-      case 0:
-        return 'Enter your account email to receive a recovery code.';
-      case 1:
-        return 'We sent a 6-digit code to ${_emailController.text.isNotEmpty ? _emailController.text : "your email"}.';
-      case 2:
-        return 'Set your new account password below.';
-      default:
-        return '';
-    }
-  }
-
-  String _getButtonLabel() {
-    switch (_currentStep) {
-      case 0:
-        return 'Send Verification Code';
-      case 1:
-        return 'Verify Code';
-      case 2:
-        return 'Reset Password';
-      default:
-        return 'Next';
-    }
-  }
-
-  Widget _buildCurrentStepFields() {
-    switch (_currentStep) {
-      // STEP 1: EMAIL INPUT
-      case 0:
-        return Column(
-          key: const ValueKey(0),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Email address',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: darkGreen,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                color: darkGreen,
-                fontSize: 14,
-              ),
-              decoration: _buildInputDecoration(
-                hint: 'name@example.com',
-                prefixIcon: Icons.mail_outline_rounded,
-              ),
-              validator: (val) {
-                if (val == null || val.trim().isEmpty) {
-                  return 'Please enter your email';
-                }
-                if (!val.contains('@')) {
-                  return 'Invalid email address';
-                }
-                return null;
-              },
-            ),
-          ],
-        );
-
-      // STEP 2: VERIFICATION CODE INPUT
-      case 1:
-        return Column(
-          key: const ValueKey(1),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Verification Code',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: darkGreen,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _codeController,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: darkGreen,
-                fontSize: 18,
-                letterSpacing: 4.0,
-              ),
-              decoration: _buildInputDecoration(
-                hint: '123456',
-                prefixIcon: Icons.pin_outlined,
-              ).copyWith(counterText: ''),
-              validator: (val) {
-                if (val == null || val.trim().length < 6) {
-                  return 'Enter the 6-digit verification code';
-                }
-                return null;
-              },
-            ),
-          ],
-        );
-
-      // STEP 3: NEW PASSWORD INPUT
-      case 2:
-        return Column(
-          key: const ValueKey(2),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'New Password',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: darkGreen,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _newPasswordController,
-              obscureText: !_isPasswordVisible,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                color: darkGreen,
-                fontSize: 14,
-              ),
-              decoration: _buildInputDecoration(
-                hint: '••••••••••••',
-                prefixIcon: Icons.lock_outline_rounded,
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _isPasswordVisible
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                    color: Colors.grey.shade500,
-                    size: 18,
-                  ),
-                  onPressed: () {
-                    setState(() => _isPasswordVisible = !_isPasswordVisible);
-                  },
-                ),
-              ),
-              validator: (val) {
-                if (val == null || val.isEmpty) {
-                  return 'Please enter your new password';
-                }
-                if (val.length < 8) {
-                  return 'Password must be at least 8 characters';
-                }
-                if (!val.contains(RegExp(r'[A-Z]'))) {
-                  return 'Must contain at least one uppercase letter';
-                }
-                if (!val.contains(RegExp(r'[a-z]'))) {
-                  return 'Must contain at least one lowercase letter';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 18),
-            const Text(
-              'Confirm New Password',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: darkGreen,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _confirmPasswordController,
-              obscureText: !_isPasswordVisible,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                color: darkGreen,
-                fontSize: 14,
-              ),
-              decoration: _buildInputDecoration(
-                hint: '••••••••••••',
-                prefixIcon: Icons.lock_clock_outlined,
-              ),
-              validator: (val) {
-                if (val == null || val.isEmpty) {
-                  return 'Please confirm your password';
-                }
-                if (val != _newPasswordController.text) {
-                  return 'Passwords do not match';
-                }
-                return null;
-              },
-            ),
-          ],
-        );
-
-      default:
-        return const SizedBox.shrink();
-    }
-  }
-
-  InputDecoration _buildInputDecoration({
-    required String hint,
-    required IconData prefixIcon,
-    Widget? suffixIcon,
-  }) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-      prefixIcon: Icon(prefixIcon, color: midGreen, size: 20),
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: inputBg,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: midGreen, width: 1.5),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
-      ),
-    );
-  }
 }
+
+//finally done
+//firestore optimized

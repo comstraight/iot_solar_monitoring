@@ -178,6 +178,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   }
 
   void _showSuccessBottomSheet() {
+    final parentNavigator = Navigator.of(context);
+
     showModalBottomSheet(
       context: context,
       isDismissible: false,
@@ -233,8 +235,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 ),
                 onPressed: () {
                   Navigator.pop(sheetContext); // Close bottom sheet
-                  if (mounted) {
-                    Navigator.pop(context); // Pop feedback screen safely
+                  if (mounted && parentNavigator.canPop()) {
+                    parentNavigator.pop(); // Pop feedback screen safely
                   }
                 },
                 child: const Text(
@@ -347,7 +349,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                           size: 20,
                         ),
                       ),
-                      onPressed: () => Navigator.maybePop(context),
+                      onPressed: () => Navigator.of(context).maybePop(),
                     ),
                     const SizedBox(height: 24),
                     const Text(
@@ -648,3 +650,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

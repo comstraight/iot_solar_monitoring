@@ -108,7 +108,10 @@ class MyApp extends StatelessWidget {
 }
 
 class AnalyticsScreen extends StatefulWidget {
-  const AnalyticsScreen({super.key});
+  final String? initialSiteId;
+  final String? initialSiteName;
+
+  const AnalyticsScreen({super.key, this.initialSiteId, this.initialSiteName});
 
   @override
   State<AnalyticsScreen> createState() => _AnalyticsScreenState();
@@ -142,8 +145,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedSite = _sites.first;
     _pageController = PageController(initialPage: 0);
+
+    // Pre-select initial site if opened from HomeScreen group shortcut
+    if (widget.initialSiteId != null && widget.initialSiteName != null) {
+      _selectedSite = SiteModel(
+        groupId: widget.initialSiteId!,
+        groupName: widget.initialSiteName!,
+        groupOrder: 0,
+      );
+    } else {
+      _selectedSite = _sites.first;
+    }
+
     _loadFirestoreSites();
     _loadFirestoreAnalytics();
   }
@@ -169,6 +183,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ),
           ...fetchedSites,
         ];
+
+        // Maintain shortcut selection if matching site exists in database
+        if (widget.initialSiteId != null) {
+          final matched = _sites.firstWhere(
+            (s) => s.groupId == widget.initialSiteId,
+            orElse: () => _selectedSite,
+          );
+          _selectedSite = matched;
+        }
+
         _isLoadingSites = false;
       });
     } catch (e) {
@@ -703,7 +727,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _buildCircularIcon(Icons.arrow_back_rounded),
+            GestureDetector(
+              onTap: () => Navigator.maybePop(context),
+              child: _buildCircularIcon(Icons.arrow_back_rounded),
+            ),
             const Text(
               'Metrics',
               style: TextStyle(
@@ -1239,3 +1266,4 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
 
 //finally done
+//optimized and ready for production

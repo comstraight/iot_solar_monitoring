@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -16,47 +15,54 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
   static const Color borderGreen = Color(0xFF20341E);
   static const Color pageBg = Colors.white;
 
-  Timer? _pollingTimer;
   bool _isLoading = true;
-
-  // CHECK INTERVAL SETTING:
-  // For testing: Duration(seconds: 1)
-  // For deployment: Change to Duration(hours: 24)
-  static const Duration _checkInterval = Duration(
-    seconds: 1,
-  ); // <-- CHANGE TO Duration(hours: 24) FOR DEPLOYMENT
 
   String _lastUpdated = 'Loading...';
   String _copyright = '© 2026 Solar Telemetry System';
   List<Map<String, String>> _sections = [];
 
+  static const List<Map<String, String>> _defaultFallbackSections = [
+    {
+      'title': '1. Terms of Service',
+      'content':
+          'By using the Solar Telemetry application, you agree to monitor solar system metrics responsibly. Data transmitted across sensors is intended for real-time diagnostics and energy production tracking.',
+    },
+    {
+      'title': '2. Privacy & Data Handling',
+      'content':
+          'We collect device usage metrics, panel status updates, and configuration parameters solely to optimize hardware diagnostics and compute accurate utility savings. Personal credentials are end-to-end encrypted.',
+    },
+  ];
+
   @override
   void initState() {
     super.initState();
     _fetchTermsFromFirebase();
-
-    // Setup periodic polling interval
-    _pollingTimer = Timer.periodic(_checkInterval, (_) {
-      _fetchTermsFromFirebase();
-    });
   }
 
-  @override
-  void dispose() {
-    _pollingTimer?.cancel();
-    super.dispose();
+  String _formatDate(dynamic rawDate) {
+    if (rawDate == null) return 'Unknown Date';
+    if (rawDate is Timestamp) {
+      final dt = rawDate.toDate();
+      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+    }
+    return rawDate.toString();
   }
 
   Future<void> _fetchTermsFromFirebase() async {
     try {
       final doc = await FirebaseFirestore.instance
-          .collection('settings')
-          .doc('terms_and_privacy')
+          .collection('system_status')
+          .doc('current')
           .get();
 
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
-        final rawSections = data['sections'] as List<dynamic>? ?? [];
+        final globals = data['globals'] as Map<String, dynamic>? ?? {};
+        final terms =
+            globals['terms_and_conditions'] as Map<String, dynamic>? ?? {};
+
+        final rawSections = terms['sections'] as List<dynamic>? ?? [];
 
         final List<Map<String, String>> parsedSections = rawSections.map((sec) {
           final map = sec as Map<String, dynamic>;
@@ -68,17 +74,35 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
 
         if (mounted) {
           setState(() {
-            _lastUpdated = data['lastUpdated'] ?? 'Unknown Date';
-            _copyright = data['copyright'] ?? '© 2026 Solar Telemetry System';
-            _sections = parsedSections;
+            _lastUpdated = _formatDate(
+              terms['accepted_at'] ?? terms['lastUpdated'],
+            );
+            _copyright =
+                terms['copyright']?.toString() ??
+                '© 2026 Solar Telemetry System';
+            _sections = parsedSections.isNotEmpty
+                ? parsedSections
+                : _defaultFallbackSections;
             _isLoading = false;
           });
         }
       } else {
-        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() {
+            _sections = _defaultFallbackSections;
+            _lastUpdated = 'October 2026';
+            _isLoading = false;
+          });
+        }
       }
     } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _sections = _defaultFallbackSections;
+          _lastUpdated = 'October 2026';
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -257,3 +281,7 @@ class _SectionWidget extends StatelessWidget {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

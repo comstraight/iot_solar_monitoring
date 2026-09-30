@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -115,13 +116,17 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
         // Auto-resolve pending email if user verified it in Auth since last visit
         if (currentUser.email != null && currentUser.email != _initialEmail) {
           _initialEmail = currentUser.email!;
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(currentUser.uid)
-              .update({
-                'email': _initialEmail,
-                'pendingEmail': FieldValue.delete(),
-              });
+          try {
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUser.uid)
+                .update({
+                  'email': _initialEmail,
+                  'pendingEmail': FieldValue.delete(),
+                });
+          } catch (e) {
+            debugPrint('Failed to resolve pending email sync: $e');
+          }
         }
       } else {
         _initialName = currentUser.displayName ?? '';
@@ -193,10 +198,15 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
         updateData['pendingEmail'] = updatedEmail;
       }
 
-      await FirebaseFirestore.instance
+      final userDocRef = FirebaseFirestore.instance
           .collection('users')
-          .doc(currentUser.uid)
-          .set(updateData, SetOptions(merge: true));
+          .doc(currentUser.uid);
+
+      try {
+        await userDocRef.update(updateData);
+      } catch (_) {
+        await userDocRef.set(updateData, SetOptions(merge: true));
+      }
 
       TextInput.finishAutofillContext();
 
@@ -221,7 +231,10 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
           : 'Profile changes saved successfully!';
 
       _showSnackBar(message);
-      Navigator.pop(context);
+
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -591,7 +604,7 @@ class _HeaderWidget extends StatelessWidget {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
             icon: const Icon(CupertinoIcons.chevron_left, color: Colors.white),
-            onPressed: () => Navigator.maybePop(context),
+            onPressed: () => Navigator.of(context).maybePop(),
           ),
           const SizedBox(height: 20),
           const Text(
@@ -611,3 +624,7 @@ class _HeaderWidget extends StatelessWidget {
     );
   }
 }
+
+
+//finally done
+//firestore optimized

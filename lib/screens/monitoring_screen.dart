@@ -106,17 +106,18 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     _pageController = PageController(initialPage: _activePageIndex);
     _scrollController = ScrollController()..addListener(_onScroll);
 
-    _listenToPanelFirestore();
+    _initStatusSubscription();
+    _listenToAnalyticsFirestore();
   }
 
-  void _listenToPanelFirestore() {
-    // 1. Listen to Specific Panel Details in Live System Status
+  void _initStatusSubscription() {
+    // 1. Single persistent listener to Specific Panel Details in Live System Status
     _statusSubscription = FirebaseFirestore.instance
         .collection('system_status')
         .doc('current')
-        .snapshots()
+        .snapshots(includeMetadataChanges: false)
         .listen((snapshot) {
-          if (!snapshot.exists || snapshot.data() == null) return;
+          if (!mounted || !snapshot.exists || snapshot.data() == null) return;
 
           final data = snapshot.data() as Map<String, dynamic>;
           final panels = data['panels'] as Map<String, dynamic>? ?? {};
@@ -158,8 +159,10 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             });
           }
         });
+  }
 
-    // 2. Listen to Scoped Panel Analytics History
+  void _listenToAnalyticsFirestore() {
+    // 2. Listen to Scoped Panel Analytics History according to timeframe
     final timeframeCol = _selectedTimeframe == 0
         ? 'daily'
         : _selectedTimeframe == 1
@@ -171,14 +174,14 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         .collection('analytics')
         .doc(widget.panelId)
         .collection(timeframeCol)
-        .snapshots()
+        .snapshots(includeMetadataChanges: false)
         .listen((snapshot) {
           _processAnalyticsSnapshot(snapshot);
         });
   }
 
   void _processAnalyticsSnapshot(QuerySnapshot snapshot) {
-    if (snapshot.docs.isEmpty) return;
+    if (!mounted || snapshot.docs.isEmpty) return;
 
     List<MonitoringRecord> records = [];
 
@@ -431,8 +434,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     if (_selectedTimeframe != newTimeframe) {
       setState(() {
         _selectedTimeframe = newTimeframe;
+        _activePageIndex = 0;
       });
-      _listenToPanelFirestore();
+      _listenToAnalyticsFirestore();
     }
   }
 

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'home_screen.dart';
+import 'forgot_password_screen.dart';
 
 class SlickLoginScreen extends StatefulWidget {
   const SlickLoginScreen({super.key});
@@ -94,16 +96,26 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final email = _emailController.text.trim();
+    final email = _emailController.text.trim().toLowerCase();
     final password = _passwordController.text.trim();
 
     try {
       if (_selectedTab == 0) {
         // --- SIGN IN FLOW ---
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
+        final UserCredential credential = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(email: email, password: password);
+
+        TextInput.finishAutofillContext();
+
+        if (credential.user != null) {
+          // Update last login timestamp in Firestore
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(credential.user!.uid)
+              .set({
+                'last_login': FieldValue.serverTimestamp(),
+              }, SetOptions(merge: true));
+        }
 
         if (!mounted) return;
 
@@ -148,6 +160,8 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                 'role': 'user',
               });
         }
+
+        TextInput.finishAutofillContext();
 
         // Sign out immediately so Firebase session doesn't auto-login
         await FirebaseAuth.instance.signOut();
@@ -232,39 +246,11 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
     }
   }
 
-  Future<void> _handleForgotPassword() async {
-    final email = _emailController.text.trim();
-    if (email.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.amber.shade900,
-          content: const Text('Please enter your email address first.'),
-        ),
-      );
-      return;
-    }
-
-    try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: darkGreen,
-          content: Text('Password reset link sent! Check your email inbox.'),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.red.shade900,
-          content: Text('Failed to send reset email: $e'),
-        ),
-      );
-    }
+  void _navigateToForgotPassword() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
+    );
   }
 
   @override
@@ -293,115 +279,32 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                   ),
                 ],
               ),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // SEGMENTED TAB SWITCHER
-                    Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: inputBg,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Row(
-                        children: [
-                          _buildTabOption('Sign In', 0),
-                          _buildTabOption('Register', 1),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-
-                    // EMAIL FIELD
-                    const Text(
-                      'Email address',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: darkGreen,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: darkGreen,
-                        fontSize: 14,
-                      ),
-                      decoration: _buildInputDecoration(
-                        hint: 'name@example.com',
-                        prefixIcon: Icons.mail_outline_rounded,
-                      ),
-                      validator: _validateEmail,
-                    ),
-                    const SizedBox(height: 18),
-
-                    // PASSWORD FIELD
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Password',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: darkGreen,
-                          ),
+              child: AutofillGroup(
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // SEGMENTED TAB SWITCHER
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: inputBg,
+                          borderRadius: BorderRadius.circular(18),
                         ),
-                        if (_selectedTab == 0)
-                          GestureDetector(
-                            onTap: _handleForgotPassword,
-                            child: const Text(
-                              'Forgot?',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: midGreen,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: !_isPasswordVisible,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: darkGreen,
-                        fontSize: 14,
-                      ),
-                      decoration: _buildInputDecoration(
-                        hint: '••••••••••••',
-                        prefixIcon: Icons.lock_outline_rounded,
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _isPasswordVisible
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            color: Colors.grey.shade500,
-                            size: 18,
-                          ),
-                          onPressed: () {
-                            setState(
-                              () => _isPasswordVisible = !_isPasswordVisible,
-                            );
-                          },
+                        child: Row(
+                          children: [
+                            _buildTabOption('Sign In', 0),
+                            _buildTabOption('Register', 1),
+                          ],
                         ),
                       ),
-                      validator: _validatePassword,
-                    ),
+                      const SizedBox(height: 28),
 
-                    // CONFIRM PASSWORD FIELD (Shown only during registration)
-                    if (_selectedTab == 1) ...[
-                      const SizedBox(height: 18),
+                      // EMAIL FIELD
                       const Text(
-                        'Confirm Password',
+                        'Email address',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.bold,
@@ -410,8 +313,66 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                       ),
                       const SizedBox(height: 8),
                       TextFormField(
-                        controller: _confirmPasswordController,
-                        obscureText: !_isConfirmPasswordVisible,
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: darkGreen,
+                          fontSize: 14,
+                        ),
+                        decoration: _buildInputDecoration(
+                          hint: 'name@example.com',
+                          prefixIcon: Icons.mail_outline_rounded,
+                        ),
+                        validator: _validateEmail,
+                      ),
+                      const SizedBox(height: 18),
+
+                      // PASSWORD FIELD
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Password',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: darkGreen,
+                            ),
+                          ),
+                          if (_selectedTab == 0)
+                            GestureDetector(
+                              onTap: _navigateToForgotPassword,
+                              child: const Text(
+                                'Forgot?',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: midGreen,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: !_isPasswordVisible,
+                        textInputAction: _selectedTab == 0
+                            ? TextInputAction.done
+                            : TextInputAction.next,
+                        autofillHints: [
+                          _selectedTab == 0
+                              ? AutofillHints.password
+                              : AutofillHints.newPassword,
+                        ],
+                        onFieldSubmitted: (_) {
+                          if (_selectedTab == 0) _handleAuth();
+                        },
                         style: const TextStyle(
                           fontWeight: FontWeight.w600,
                           color: darkGreen,
@@ -419,10 +380,10 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                         ),
                         decoration: _buildInputDecoration(
                           hint: '••••••••••••',
-                          prefixIcon: Icons.lock_clock_outlined,
+                          prefixIcon: Icons.lock_outline_rounded,
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _isConfirmPasswordVisible
+                              _isPasswordVisible
                                   ? Icons.visibility_outlined
                                   : Icons.visibility_off_outlined,
                               color: Colors.grey.shade500,
@@ -430,63 +391,108 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                             ),
                             onPressed: () {
                               setState(
-                                () => _isConfirmPasswordVisible =
-                                    !_isConfirmPasswordVisible,
+                                () => _isPasswordVisible = !_isPasswordVisible,
                               );
                             },
                           ),
                         ),
-                        validator: _validateConfirmPassword,
+                        validator: _validatePassword,
                       ),
-                    ],
 
-                    const SizedBox(height: 24),
-
-                    // ACTION BUTTON
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: darkGreen,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                      // CONFIRM PASSWORD FIELD (Shown only during registration)
+                      if (_selectedTab == 1) ...[
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Confirm Password',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: darkGreen,
                           ),
                         ),
-                        onPressed: _isLoading ? null : _handleAuth,
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    _selectedTab == 0
-                                        ? 'Sign In'
-                                        : 'Create Account',
-                                    style: const TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.arrow_forward_rounded,
-                                    size: 18,
-                                  ),
-                                ],
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          controller: _confirmPasswordController,
+                          obscureText: !_isConfirmPasswordVisible,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.newPassword],
+                          onFieldSubmitted: (_) => _handleAuth(),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: darkGreen,
+                            fontSize: 14,
+                          ),
+                          decoration: _buildInputDecoration(
+                            hint: '••••••••••••',
+                            prefixIcon: Icons.lock_clock_outlined,
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _isConfirmPasswordVisible
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                                color: Colors.grey.shade500,
+                                size: 18,
                               ),
+                              onPressed: () {
+                                setState(
+                                  () => _isConfirmPasswordVisible =
+                                      !_isConfirmPasswordVisible,
+                                );
+                              },
+                            ),
+                          ),
+                          validator: _validateConfirmPassword,
+                        ),
+                      ],
+
+                      const SizedBox(height: 24),
+
+                      // ACTION BUTTON
+                      SizedBox(
+                        width: double.infinity,
+                        height: 54,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: darkGreen,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          onPressed: _isLoading ? null : _handleAuth,
+                          child: _isLoading
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      _selectedTab == 0
+                                          ? 'Sign In'
+                                          : 'Create Account',
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(
+                                      Icons.arrow_forward_rounded,
+                                      size: 18,
+                                    ),
+                                  ],
+                                ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -572,3 +578,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
     );
   }
 }
+
+
+//finally done
+//firestore optimized
