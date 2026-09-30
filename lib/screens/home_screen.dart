@@ -275,6 +275,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Padding(
       padding: const EdgeInsets.only(left: 17, right: 15, top: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const Text(
             'Monitoring',
@@ -285,37 +286,44 @@ class _HomeScreenState extends State<HomeScreen> {
             'sort by ',
             style: TextStyle(fontSize: 11, color: Colors.grey),
           ),
-          DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: activeFilter,
-              dropdownColor: Colors.white,
-              icon: const Padding(
-                padding: EdgeInsets.only(left: 4),
-                child: Icon(
-                  CupertinoIcons.chevron_down,
-                  size: 14,
-                  color: Colors.black,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 5.0),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: activeFilter,
+                dropdownColor: Colors.white,
+                isDense: true,
+                isExpanded: false,
+                alignment: Alignment.center,
+                icon: const Padding(
+                  padding: EdgeInsets.only(left: 6),
+                  child: Icon(
+                    CupertinoIcons.chevron_down,
+                    size: 13,
+                    color: Colors.black,
+                  ),
                 ),
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                onChanged: (String? newValue) {
+                  if (newValue != null && newValue != selectedFilter) {
+                    setState(() {
+                      selectedFilter = newValue;
+                    });
+                  }
+                },
+                items: dynamicFilters.map((String value) {
+                  return DropdownMenuItem<String>(
+                    value: value,
+                    alignment: Alignment.center,
+                    child: Text(value, textAlign: TextAlign.center),
+                  );
+                }).toList(),
               ),
-              style: const TextStyle(
-                color: Colors.black,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-              ),
-              borderRadius: BorderRadius.circular(12),
-              onChanged: (String? newValue) {
-                if (newValue != null && newValue != selectedFilter) {
-                  setState(() {
-                    selectedFilter = newValue;
-                  });
-                }
-              },
-              items: dynamicFilters.map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
             ),
           ),
         ],
@@ -565,7 +573,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // --- Top Dashboard Card ---
   Widget topDashboard({required double soc, required double totalGenerated}) {
     return Container(
-      height: 300,
+      height: 230,
       decoration: const BoxDecoration(
         color: Colors.green,
         borderRadius: BorderRadius.only(
@@ -633,25 +641,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     const Text(
                       'Total Generated',
                       style: TextStyle(fontSize: 10, color: Colors.white),
-                    ),
-                    const SizedBox(height: 30),
-                    const Text(
-                      'Charging',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    dynamicChargingBar(soc),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${soc.toStringAsFixed(0)}% Charged',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white70,
-                      ),
                     ),
                   ],
                 ),
@@ -743,52 +732,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       alignment: Alignment.center,
       child: Icon(icon, size: 23, color: Colors.white),
-    );
-  }
-
-  // --- Dynamic Charging Segment Bar ---
-  Widget dynamicChargingBar(double socPercentage) {
-    const int totalSegment = 10;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(totalSegment, (index) {
-        final double segmentStart = index * 10.0;
-        final double segmentEnd = (index + 1) * 10.0;
-
-        final bool isFullyFilled = socPercentage >= segmentEnd;
-        final bool isPartiallyFilled =
-            socPercentage > segmentStart && socPercentage < segmentEnd;
-
-        Color segmentColor;
-        List<BoxShadow> shadowList = [];
-
-        if (isFullyFilled) {
-          segmentColor = const Color(0xFF00FF22);
-          shadowList = [
-            BoxShadow(
-              color: const Color(0xFF00FF22).withValues(alpha: 0.5),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ];
-        } else if (isPartiallyFilled) {
-          segmentColor = const Color(0xFF00FF22).withValues(alpha: 0.35);
-        } else {
-          segmentColor = const Color(0xFF1C7A18).withValues(alpha: 0.4);
-        }
-
-        return Container(
-          width: 15,
-          height: 27,
-          margin: const EdgeInsets.symmetric(horizontal: 1.5),
-          decoration: BoxDecoration(
-            color: segmentColor,
-            boxShadow: shadowList,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        );
-      }),
     );
   }
 
@@ -962,13 +905,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ? const Color(0xFFDC2626)
         : (isSelected ? Colors.black : const Color(0xFF374151));
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 2),
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFFF3F4F6) : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
-      ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
       child: ListTile(
+        tileColor: isSelected ? const Color(0xFFF3F4F6) : Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
         dense: true,
         leading: Icon(icon, color: iconColor, size: 18),
@@ -1071,3 +1012,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
+
+// partial fix

@@ -1,37 +1,40 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class BarData {
-  final String time;
-  final double val;
+  final String label;
+  final double
+  val; // Dynamic ratio (0.0 to 1.0) scaled against specific panel capacity/peak
   final bool isHighlight;
-  final String peakVal;
+  final bool isInProgress;
+  final String peakVal; // Display text for peak bar (e.g., "280 W")
 
   const BarData({
-    required this.time,
+    required this.label,
     required this.val,
     required this.isHighlight,
+    this.isInProgress = false,
     this.peakVal = '',
   });
 }
 
-class DailyRecord {
-  final String date;
-  final String totalKwh;
-  final String estimatedSavings;
+class MonitoringRecord {
+  final String title;
   final List<BarData> bars;
+  final String totalKwh;
 
-  const DailyRecord({
-    required this.date,
-    required this.totalKwh,
-    required this.estimatedSavings,
+  const MonitoringRecord({
+    required this.title,
     required this.bars,
+    this.totalKwh = '0.0',
   });
 }
 
 class DegradationYearPoint {
   final String yearLabel;
-  final double efficiencyRatio; // Value between 0.0 and 1.0 (100% scale)
+  final double efficiencyRatio; // Ratio (0.0 to 1.0)
 
   const DegradationYearPoint({
     required this.yearLabel,
@@ -40,7 +43,12 @@ class DegradationYearPoint {
 }
 
 class MonitoringScreen extends StatefulWidget {
-  const MonitoringScreen({super.key});
+  final String panelId;
+
+  const MonitoringScreen({
+    super.key,
+    this.panelId = 'panel_01', // Scoped to specific panel
+  });
 
   @override
   State<MonitoringScreen> createState() => _MonitoringScreenState();
@@ -49,100 +57,383 @@ class MonitoringScreen extends StatefulWidget {
 class _MonitoringScreenState extends State<MonitoringScreen> {
   // Theme Constants
   static const Color darkGreen = Color(0xFF20831B);
+  static const Color lightGreen = Color(0xFF66BB6A);
   static const Color accentOrange = Color(0xFFF1A12A);
   static const Color pageBg = Color(0xFFF4F4F4);
   static const Color cardBg = Color(0xFFEBEBEB);
 
+  // Timeframe & Page Controllers
+  int _selectedTimeframe = 0; // 0: Daily, 1: Weekly, 2: Annually
+  late PageController _pageController;
+  int _activePageIndex = 0;
+
   // Controllers & Keys
-  late final PageController _pageController;
   late final ScrollController _scrollController;
   final GlobalKey _questionMarkKey = GlobalKey();
 
-  int _currentRecordIndex = 2; // Default to latest day (Index 2)
-  int _degradationSlideIndex =
-      1; // Default to latest historical slide (2020 - 2026)
+  int _degradationSlideIndex = 0;
   bool _showPanelNameInAppBar = false;
+
+  // Panel Condition & Status Options
+  String _selectedCondition = 'In good condition';
+  String _selectedStatus = 'Active';
 
   // Tooltip Overlay & Fade States
   bool _showTooltip = false;
   bool _tooltipVisible = false;
   Timer? _fadeTimer;
 
-  // Hardcoded Telemetry Dataset
-  final List<DailyRecord> _dailyRecords = const [
-    DailyRecord(
-      date: 'Sep 15, 2026',
-      totalKwh: '610',
-      estimatedSavings: '₱ 3,660.00',
-      bars: [
-        BarData(time: '6AM', val: 0.35, isHighlight: false),
-        BarData(time: '7AM', val: 0.45, isHighlight: false),
-        BarData(time: '8AM', val: 0.65, isHighlight: false),
-        BarData(time: '9AM', val: 0.40, isHighlight: false),
-        BarData(time: '10AM', val: 0.85, isHighlight: true, peakVal: '310 kWh'),
-        BarData(time: '11AM', val: 0.70, isHighlight: false),
-        BarData(time: '12PM', val: 0.40, isHighlight: false),
-      ],
-    ),
-    DailyRecord(
-      date: 'Sep 16, 2026',
-      totalKwh: '680',
-      estimatedSavings: '₱ 4,080.00',
-      bars: [
-        BarData(time: '6AM', val: 0.40, isHighlight: false),
-        BarData(time: '7AM', val: 0.50, isHighlight: false),
-        BarData(time: '8AM', val: 0.80, isHighlight: true, peakVal: '340 kWh'),
-        BarData(time: '9AM', val: 0.55, isHighlight: false),
-        BarData(time: '10AM', val: 0.65, isHighlight: false),
-        BarData(time: '11AM', val: 0.60, isHighlight: false),
-        BarData(time: '12PM', val: 0.45, isHighlight: false),
-      ],
-    ),
-    DailyRecord(
-      date: 'Sep 17, 2026 (Today)',
-      totalKwh: '725',
-      estimatedSavings: '₱ 4,350.00',
-      bars: [
-        BarData(time: '6AM', val: 0.45, isHighlight: false),
-        BarData(time: '7AM', val: 0.55, isHighlight: false),
-        BarData(time: '8AM', val: 0.75, isHighlight: false),
-        BarData(time: '9AM', val: 0.38, isHighlight: false),
-        BarData(time: '10AM', val: 0.75, isHighlight: false),
-        BarData(time: '11AM', val: 1.00, isHighlight: true, peakVal: '360 kWh'),
-        BarData(time: '12PM', val: 0.52, isHighlight: false),
-      ],
-    ),
-  ];
+  // Live Stream Subscriptions
+  StreamSubscription<DocumentSnapshot>? _statusSubscription;
+  StreamSubscription<QuerySnapshot>? _analyticsSubscription;
 
-  // Paginated Historical Solar Panel Degradation Data
-  final List<List<DegradationYearPoint>> _degradationSlides = const [
-    // Slide 1 (2014 to 2020)
-    [
-      DegradationYearPoint(yearLabel: '2014', efficiencyRatio: 1.00),
-      DegradationYearPoint(yearLabel: '2015', efficiencyRatio: 0.98),
-      DegradationYearPoint(yearLabel: '2016', efficiencyRatio: 0.96),
-      DegradationYearPoint(yearLabel: '2017', efficiencyRatio: 0.94),
-      DegradationYearPoint(yearLabel: '2018', efficiencyRatio: 0.92),
-      DegradationYearPoint(yearLabel: '2019', efficiencyRatio: 0.90),
-      DegradationYearPoint(yearLabel: '2020', efficiencyRatio: 0.88),
-    ],
-    // Slide 2 (2020 to 2026 - Current Year)
-    [
-      DegradationYearPoint(yearLabel: '2020', efficiencyRatio: 0.88),
-      DegradationYearPoint(yearLabel: '2021', efficiencyRatio: 0.87),
-      DegradationYearPoint(yearLabel: '2022', efficiencyRatio: 0.86),
-      DegradationYearPoint(yearLabel: '2023', efficiencyRatio: 0.85),
-      DegradationYearPoint(yearLabel: '2024', efficiencyRatio: 0.85),
-      DegradationYearPoint(yearLabel: '2025', efficiencyRatio: 0.84),
-      DegradationYearPoint(yearLabel: '2026', efficiencyRatio: 0.84),
-    ],
-  ];
+  // Panel Data State
+  String _panelName = 'SOLAR - 1';
+  double _panelRatedPowerW = 300.0;
+  double _annualDegradationRate = 0.45;
+  double _currentEfficiencyRatio = 1.0;
+
+  // Dynamic Datasets fetched from Firestore
+  List<MonitoringRecord> _dailyRecords = [];
+  List<MonitoringRecord> _weeklyRecords = [];
+  List<MonitoringRecord> _annualRecords = [];
+  List<List<DegradationYearPoint>> _degradationSlides = [[]];
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: _currentRecordIndex);
+    _activePageIndex = 0;
+    _pageController = PageController(initialPage: _activePageIndex);
     _scrollController = ScrollController()..addListener(_onScroll);
+
+    _listenToPanelFirestore();
+  }
+
+  void _listenToPanelFirestore() {
+    // 1. Listen to Specific Panel Details in Live System Status
+    _statusSubscription = FirebaseFirestore.instance
+        .collection('system_status')
+        .doc('current')
+        .snapshots()
+        .listen((snapshot) {
+          if (!snapshot.exists || snapshot.data() == null) return;
+
+          final data = snapshot.data() as Map<String, dynamic>;
+          final panels = data['panels'] as Map<String, dynamic>? ?? {};
+
+          if (panels.containsKey(widget.panelId)) {
+            final panelDoc = panels[widget.panelId] as Map<String, dynamic>;
+            final metadata =
+                panelDoc['metadata'] as Map<String, dynamic>? ?? {};
+            final diagnostics =
+                panelDoc['diagnostics'] as Map<String, dynamic>? ?? {};
+
+            final historyRaw = (diagnostics['degrade_history'] as List?) ?? [];
+            List<DegradationYearPoint> points = historyRaw.map((e) {
+              final m = e as Map<String, dynamic>;
+              return DegradationYearPoint(
+                yearLabel: m['yearLabel']?.toString() ?? '',
+                efficiencyRatio:
+                    (m['efficiencyRatio'] as num?)?.toDouble() ?? 1.0,
+              );
+            }).toList();
+
+            setState(() {
+              _panelName = panelDoc['panel_name'] ?? widget.panelId;
+              _panelRatedPowerW =
+                  (metadata['rated_power_w'] as num?)?.toDouble() ?? 300.0;
+              _annualDegradationRate =
+                  (diagnostics['degradation_rate_annual'] as num?)
+                      ?.toDouble() ??
+                  0.45;
+              _currentEfficiencyRatio =
+                  (diagnostics['current_efficiency_ratio'] as num?)
+                      ?.toDouble() ??
+                  1.0;
+
+              if (points.isNotEmpty) {
+                _degradationSlides = [points];
+                _degradationSlideIndex = 0;
+              }
+            });
+          }
+        });
+
+    // 2. Listen to Scoped Panel Analytics History
+    final timeframeCol = _selectedTimeframe == 0
+        ? 'daily'
+        : _selectedTimeframe == 1
+        ? 'weekly'
+        : 'annually';
+
+    _analyticsSubscription?.cancel();
+    _analyticsSubscription = FirebaseFirestore.instance
+        .collection('analytics')
+        .doc(widget.panelId)
+        .collection(timeframeCol)
+        .snapshots()
+        .listen((snapshot) {
+          _processAnalyticsSnapshot(snapshot);
+        });
+  }
+
+  void _processAnalyticsSnapshot(QuerySnapshot snapshot) {
+    if (snapshot.docs.isEmpty) return;
+
+    List<MonitoringRecord> records = [];
+
+    if (_selectedTimeframe == 2) {
+      // Ported annual halving logic from AnalyticsScreen
+      final monthNames = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final yearId = doc.id;
+        final barsRaw = data['bars'] as Map<String, dynamic>? ?? {};
+
+        // 1. First Half (Jan - Jun)
+        double firstHalfTotal = 0.0;
+        double firstHalfPeak = 0.0;
+        for (int m = 1; m <= 6; m++) {
+          final monthKey = monthNames[m - 1];
+          final rawVal = barsRaw[monthKey];
+          double v = 0.0;
+          if (rawVal is Map) {
+            v =
+                (rawVal['raw_kwh'] as num?)?.toDouble() ??
+                (rawVal['val'] as num?)?.toDouble() ??
+                0.0;
+          } else if (rawVal is num) {
+            v = rawVal.toDouble();
+          }
+          firstHalfTotal += v;
+          if (v > firstHalfPeak) firstHalfPeak = v;
+        }
+
+        final firstHalfCeiling = max(
+          _panelRatedPowerW / 1000.0,
+          firstHalfPeak > 0 ? firstHalfPeak : 1.0,
+        );
+
+        List<BarData> firstHalfBars = [];
+        for (int m = 1; m <= 6; m++) {
+          final monthKey = monthNames[m - 1];
+          final rawVal = barsRaw[monthKey];
+          double v = 0.0;
+          String displayLabel = '';
+          if (rawVal is Map) {
+            v =
+                (rawVal['raw_kwh'] as num?)?.toDouble() ??
+                (rawVal['val'] as num?)?.toDouble() ??
+                0.0;
+            displayLabel = rawVal['displayLabel']?.toString() ?? '';
+          } else if (rawVal is num) {
+            v = rawVal.toDouble();
+          }
+
+          final heightRatio = (v / firstHalfCeiling).clamp(0.0, 1.0);
+          final isPeak = firstHalfPeak > 0 && v == firstHalfPeak;
+
+          firstHalfBars.add(
+            BarData(
+              label: monthKey,
+              val: heightRatio,
+              isHighlight: isPeak,
+              peakVal: isPeak
+                  ? (displayLabel.isNotEmpty
+                        ? displayLabel
+                        : '${(v * 1000).toInt()} W')
+                  : '',
+            ),
+          );
+        }
+
+        records.add(
+          MonitoringRecord(
+            title: '$yearId - First Half',
+            bars: firstHalfBars,
+            totalKwh: firstHalfTotal.toStringAsFixed(0),
+          ),
+        );
+
+        // 2. Second Half (Jul - Dec)
+        double secondHalfTotal = 0.0;
+        double secondHalfPeak = 0.0;
+        for (int m = 7; m <= 12; m++) {
+          final monthKey = monthNames[m - 1];
+          final rawVal = barsRaw[monthKey];
+          double v = 0.0;
+          if (rawVal is Map) {
+            v =
+                (rawVal['raw_kwh'] as num?)?.toDouble() ??
+                (rawVal['val'] as num?)?.toDouble() ??
+                0.0;
+          } else if (rawVal is num) {
+            v = rawVal.toDouble();
+          }
+          secondHalfTotal += v;
+          if (v > secondHalfPeak) secondHalfPeak = v;
+        }
+
+        final secondHalfCeiling = max(
+          _panelRatedPowerW / 1000.0,
+          secondHalfPeak > 0 ? secondHalfPeak : 1.0,
+        );
+
+        List<BarData> secondHalfBars = [];
+        for (int m = 7; m <= 12; m++) {
+          final monthKey = monthNames[m - 1];
+          final rawVal = barsRaw[monthKey];
+          double v = 0.0;
+          String displayLabel = '';
+          if (rawVal is Map) {
+            v =
+                (rawVal['raw_kwh'] as num?)?.toDouble() ??
+                (rawVal['val'] as num?)?.toDouble() ??
+                0.0;
+            displayLabel = rawVal['displayLabel']?.toString() ?? '';
+          } else if (rawVal is num) {
+            v = rawVal.toDouble();
+          }
+
+          final heightRatio = (v / secondHalfCeiling).clamp(0.0, 1.0);
+          final isPeak = secondHalfPeak > 0 && v == secondHalfPeak;
+
+          secondHalfBars.add(
+            BarData(
+              label: monthKey,
+              val: heightRatio,
+              isHighlight: isPeak,
+              peakVal: isPeak
+                  ? (displayLabel.isNotEmpty
+                        ? displayLabel
+                        : '${(v * 1000).toInt()} W')
+                  : '',
+            ),
+          );
+        }
+
+        records.add(
+          MonitoringRecord(
+            title: '$yearId - Second Half',
+            bars: secondHalfBars,
+            totalKwh: secondHalfTotal.toStringAsFixed(0),
+          ),
+        );
+      }
+    } else {
+      // Standard processing for Daily and Weekly views
+      for (var doc in snapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        final title = data['title'] as String? ?? '';
+        final totalKwh =
+            (data['totalKwh'] as num?)?.toDouble().toStringAsFixed(0) ?? '0';
+        final barsRaw = data['bars'] as Map<String, dynamic>? ?? {};
+
+        double peakVal = 0.0;
+        barsRaw.forEach((key, val) {
+          double v = 0.0;
+          if (val is Map) {
+            v =
+                (val['raw_kwh'] as num?)?.toDouble() ??
+                (val['val'] as num?)?.toDouble() ??
+                0.0;
+          } else if (val is num) {
+            v = val.toDouble();
+          }
+          if (v > peakVal) peakVal = v;
+        });
+
+        final ceiling = max(
+          _panelRatedPowerW / 1000.0,
+          peakVal > 0 ? peakVal : 1.0,
+        );
+
+        List<BarData> bars = [];
+        barsRaw.forEach((key, val) {
+          double rawVal = 0.0;
+          String displayLabel = '';
+
+          if (val is Map) {
+            rawVal =
+                (val['raw_kwh'] as num?)?.toDouble() ??
+                (val['val'] as num?)?.toDouble() ??
+                0.0;
+            displayLabel = val['displayLabel']?.toString() ?? '';
+          } else if (val is num) {
+            rawVal = val.toDouble();
+          }
+
+          final heightRatio = (rawVal / ceiling).clamp(0.0, 1.0);
+          final isPeak = peakVal > 0 && rawVal == peakVal;
+
+          bars.add(
+            BarData(
+              label: key,
+              val: heightRatio,
+              isHighlight: isPeak,
+              peakVal: isPeak
+                  ? (displayLabel.isNotEmpty
+                        ? displayLabel
+                        : '${(rawVal * 1000).toInt()} W')
+                  : '',
+            ),
+          );
+        });
+
+        records.add(
+          MonitoringRecord(title: title, bars: bars, totalKwh: totalKwh),
+        );
+      }
+    }
+
+    setState(() {
+      if (_selectedTimeframe == 0) {
+        _dailyRecords = records;
+      } else if (_selectedTimeframe == 1) {
+        _weeklyRecords = records;
+      } else {
+        _annualRecords = records;
+      }
+      _activePageIndex = records.isNotEmpty ? records.length - 1 : 0;
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_activePageIndex);
+      }
+    });
+  }
+
+  List<MonitoringRecord> _buildRecordsForTimeframe(int timeframe) {
+    switch (timeframe) {
+      case 0:
+        return _dailyRecords;
+      case 1:
+        return _weeklyRecords;
+      case 2:
+      default:
+        return _annualRecords;
+    }
+  }
+
+  void _onTimeframeChanged(int newTimeframe) {
+    if (_selectedTimeframe != newTimeframe) {
+      setState(() {
+        _selectedTimeframe = newTimeframe;
+      });
+      _listenToPanelFirestore();
+    }
   }
 
   void _onScroll() {
@@ -180,16 +471,90 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     });
   }
 
+  void _showSensorStatusModal() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        final sensors = [
+          {'name': 'Light Sensor', 'working': true},
+          {
+            'name': 'Temperature Sensor',
+            'working': _selectedStatus != 'Sensor Problems',
+          },
+          {'name': 'Humidity Sensor', 'working': true},
+        ];
+
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Sensor Diagnostics',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              ...sensors.map((sensor) {
+                final isWorking = sensor['working'] as bool;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        sensor['name'] as String,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Icon(
+                            isWorking
+                                ? Icons.check_circle_rounded
+                                : Icons.error_rounded,
+                            color: isWorking ? Colors.green : Colors.red,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isWorking ? 'Working' : 'Error',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: isWorking ? Colors.green : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _statusSubscription?.cancel();
+    _analyticsSubscription?.cancel();
     _fadeTimer?.cancel();
     _pageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _navigateToPage(int index) {
-    if (index >= 0 && index < _dailyRecords.length) {
+  void _navigateToPage(int index, int totalRecords) {
+    if (index >= 0 && index < totalRecords && _pageController.hasClients) {
       _pageController.animateToPage(
         index,
         duration: const Duration(milliseconds: 300),
@@ -198,22 +563,80 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     }
   }
 
+  Widget _buildTimeframeDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F5F5),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          value: _selectedTimeframe,
+          isDense: true,
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: Colors.black87,
+          ),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+          dropdownColor: const Color(0xFFF0F0F0),
+          borderRadius: BorderRadius.circular(16),
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('Daily')),
+            DropdownMenuItem(value: 1, child: Text('Weekly')),
+            DropdownMenuItem(value: 2, child: Text('Annually')),
+          ],
+          onChanged: (int? newValue) {
+            if (newValue != null) {
+              _onTimeframeChanged(newValue);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final int safeIndex = _currentRecordIndex.clamp(
-      0,
-      _dailyRecords.length - 1,
+    final List<MonitoringRecord> records = _buildRecordsForTimeframe(
+      _selectedTimeframe,
     );
-    final DailyRecord activeRecord = _dailyRecords[safeIndex];
-    final DailyRecord latestRecord = _dailyRecords.last;
+    final int safeIndex = _activePageIndex.clamp(
+      0,
+      records.isNotEmpty ? records.length - 1 : 0,
+    );
+    final MonitoringRecord activeRecord = records.isNotEmpty
+        ? records[safeIndex]
+        : const MonitoringRecord(title: 'Loading...', bars: []);
+    final MonitoringRecord latestRecord = records.isNotEmpty
+        ? records.last
+        : const MonitoringRecord(title: '', bars: []);
 
-    // Active degradation slide data points
     final List<DegradationYearPoint> activeSlidePoints =
-        _degradationSlides[_degradationSlideIndex];
+        _degradationSlides.isNotEmpty
+        ? _degradationSlides[_degradationSlideIndex.clamp(
+            0,
+            _degradationSlides.length - 1,
+          )]
+        : [];
+    final double persistentLatestEfficiency = _currentEfficiencyRatio;
 
-    // PERSISTENT LATEST EFFICIENCY: Always shows current year reading (2026 -> 84%)
-    final double persistentLatestEfficiency =
-        _degradationSlides.last.last.efficiencyRatio;
+    final Color statusColor = _selectedStatus == 'Sensor Problems'
+        ? Colors.red
+        : _selectedStatus == 'Inactive'
+        ? Colors.grey
+        : Colors.green;
 
     return Listener(
       onPointerDown: (_) => _triggerFadeTimerOnTouch(),
@@ -260,7 +683,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       ),
                     ),
                     child: Text(
-                      _showPanelNameInAppBar ? 'SOLAR - 1' : 'Monitoring',
+                      _showPanelNameInAppBar ? _panelName : 'Monitoring',
                       key: ValueKey<bool>(_showPanelNameInAppBar),
                       style: const TextStyle(
                         fontSize: 20,
@@ -310,43 +733,74 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.green,
-                                    shape: BoxShape.circle,
+                            GestureDetector(
+                              onTap: _showSensorStatusModal,
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: BoxDecoration(
+                                      color: statusColor,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                const Text(
-                                  'Active',
-                                  style: TextStyle(
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _selectedStatus,
+                                    style: TextStyle(
+                                      color: statusColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                             const SizedBox(height: 8),
-                            const Text(
-                              'SOLAR - 1',
-                              style: TextStyle(
+                            Text(
+                              _panelName,
+                              style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w900,
                                 color: Colors.black,
                               ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              'In good condition',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w500,
+                            DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedCondition,
+                                isDense: true,
+                                icon: const Icon(
+                                  Icons.arrow_drop_down,
+                                  size: 18,
+                                ),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'In good condition',
+                                    child: Text('In good condition'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'In fair condition',
+                                    child: Text('In fair condition'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'In bad condition',
+                                    child: Text('In bad condition'),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setState(() {
+                                      _selectedCondition = value;
+                                    });
+                                  }
+                                },
                               ),
                             ),
                           ],
@@ -382,144 +836,193 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              activeRecord.totalKwh,
-                              style: const TextStyle(
-                                fontSize: 36,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.black,
-                              ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    Text(
+                                      activeRecord.totalKwh,
+                                      style: const TextStyle(
+                                        fontSize: 36,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    const Text(
+                                      'kWh',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.black,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Energy Production',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 6),
-                            const Text(
-                              'kWh',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black,
-                              ),
-                            ),
+                            _buildTimeframeDropdown(),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'Total Energy Production',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.black54,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 20),
                         SizedBox(
-                          height: 180,
-                          child: PageView.builder(
-                            controller: _pageController,
-                            itemCount: _dailyRecords.length,
-                            onPageChanged: (index) {
-                              setState(() => _currentRecordIndex = index);
-                            },
-                            itemBuilder: (context, recordIndex) {
-                              final List<BarData> barData =
-                                  _dailyRecords[recordIndex].bars;
-                              return Stack(
-                                children: [
-                                  Positioned.fill(
-                                    child: Column(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
+                          height: 220,
+                          child: records.isEmpty
+                              ? const Center(child: CircularProgressIndicator())
+                              : PageView.builder(
+                                  key: ValueKey<int>(_selectedTimeframe),
+                                  controller: _pageController,
+                                  itemCount: records.length,
+                                  onPageChanged: (index) {
+                                    setState(() => _activePageIndex = index);
+                                  },
+                                  itemBuilder: (context, recordIndex) {
+                                    final List<BarData> barData =
+                                        records[recordIndex].bars;
+                                    return Column(
                                       children: [
-                                        _buildDashedLine(),
-                                        _buildDashedLine(),
-                                        _buildDashedLine(),
-                                        _buildDashedLine(),
-                                        const SizedBox(height: 20),
-                                      ],
-                                    ),
-                                  ),
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: List.generate(barData.length, (
-                                      i,
-                                    ) {
-                                      final BarData item = barData[i];
-                                      return Expanded(
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.end,
-                                          children: [
-                                            if (item.isHighlight)
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 4,
-                                                    ),
-                                                margin: const EdgeInsets.only(
-                                                  bottom: 6,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: const Color(
-                                                    0xFFDDDDDD,
-                                                  ),
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                child: Column(
-                                                  children: [
-                                                    const Icon(
-                                                      Icons.bolt_rounded,
-                                                      size: 12,
-                                                      color: Colors.black54,
-                                                    ),
-                                                    Text(
-                                                      item.peakVal,
-                                                      style: const TextStyle(
-                                                        fontSize: 9,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color: Colors.black,
+                                        Expanded(
+                                          child: LayoutBuilder(
+                                            builder: (context, constraints) {
+                                              const double topHeadroom = 36.0;
+                                              final double availableBarHeight =
+                                                  constraints.maxHeight -
+                                                  topHeadroom;
+
+                                              return Stack(
+                                                clipBehavior: Clip.none,
+                                                children: [
+                                                  Positioned(
+                                                    top: topHeadroom,
+                                                    left: 0,
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    child: Column(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .spaceBetween,
+                                                      children: List.generate(
+                                                        5,
+                                                        (_) =>
+                                                            _buildDashedLine(),
                                                       ),
                                                     ),
-                                                  ],
-                                                ),
-                                              )
-                                            else
-                                              const SizedBox(height: 32),
-                                            Container(
-                                              width: 42,
-                                              height: 100 * item.val,
-                                              decoration: BoxDecoration(
-                                                color: item.isHighlight
-                                                    ? accentOrange
-                                                    : darkGreen,
-                                                borderRadius:
-                                                    const BorderRadius.vertical(
-                                                      top: Radius.circular(8),
+                                                  ),
+                                                  Positioned(
+                                                    top: topHeadroom,
+                                                    left: 0,
+                                                    right: 0,
+                                                    bottom: 0,
+                                                    child: Row(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .end,
+                                                      children: barData.map<Widget>((
+                                                        item,
+                                                      ) {
+                                                        final calculatedBarHeight =
+                                                            availableBarHeight *
+                                                            item.val.clamp(
+                                                              0.0,
+                                                              1.0,
+                                                            );
+
+                                                        Color barColor;
+                                                        if (item.isInProgress) {
+                                                          barColor = lightGreen;
+                                                        } else if (item
+                                                            .isHighlight) {
+                                                          barColor =
+                                                              accentOrange;
+                                                        } else {
+                                                          barColor = darkGreen;
+                                                        }
+
+                                                        return Expanded(
+                                                          child: Stack(
+                                                            alignment: Alignment
+                                                                .bottomCenter,
+                                                            clipBehavior:
+                                                                Clip.none,
+                                                            children: [
+                                                              Container(
+                                                                width: 40,
+                                                                height:
+                                                                    calculatedBarHeight,
+                                                                decoration: BoxDecoration(
+                                                                  color:
+                                                                      barColor,
+                                                                  borderRadius:
+                                                                      const BorderRadius.vertical(
+                                                                        top:
+                                                                            Radius.circular(
+                                                                              8,
+                                                                            ),
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                              if (item
+                                                                  .peakVal
+                                                                  .isNotEmpty)
+                                                                Positioned(
+                                                                  bottom:
+                                                                      calculatedBarHeight +
+                                                                      6,
+                                                                  child: _buildHighlightLabel(
+                                                                    item.peakVal,
+                                                                    item.isInProgress,
+                                                                  ),
+                                                                ),
+                                                            ],
+                                                          ),
+                                                        );
+                                                      }).toList(),
                                                     ),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              item.time,
-                                              style: const TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w800,
-                                                color: Colors.black87,
-                                              ),
-                                            ),
-                                          ],
+                                                  ),
+                                                ],
+                                              );
+                                            },
+                                          ),
                                         ),
-                                      );
-                                    }),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
+                                        const SizedBox(height: 12),
+                                        Row(
+                                          children: barData.map<Widget>((item) {
+                                            return Expanded(
+                                              child: Center(
+                                                child: Text(
+                                                  item.label,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: item.isInProgress
+                                                        ? darkGreen
+                                                        : Colors.black87,
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
                         ),
                         const SizedBox(height: 20),
                         Container(
@@ -534,30 +1037,33 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              if (_currentRecordIndex > 0)
+                              if (safeIndex > 0)
                                 IconButton(
                                   icon: const Icon(Icons.chevron_left_rounded),
-                                  onPressed: () =>
-                                      _navigateToPage(_currentRecordIndex - 1),
+                                  onPressed: () => _navigateToPage(
+                                    safeIndex - 1,
+                                    records.length,
+                                  ),
                                   constraints: const BoxConstraints(),
                                   padding: EdgeInsets.zero,
                                 )
                               else
                                 const SizedBox(width: 24),
                               Text(
-                                activeRecord.date,
+                                activeRecord.title,
                                 style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w800,
                                   color: Colors.black,
                                 ),
                               ),
-                              if (_currentRecordIndex <
-                                  _dailyRecords.length - 1)
+                              if (safeIndex < records.length - 1)
                                 IconButton(
                                   icon: const Icon(Icons.chevron_right_rounded),
-                                  onPressed: () =>
-                                      _navigateToPage(_currentRecordIndex + 1),
+                                  onPressed: () => _navigateToPage(
+                                    safeIndex + 1,
+                                    records.length,
+                                  ),
                                   constraints: const BoxConstraints(),
                                   padding: EdgeInsets.zero,
                                 )
@@ -677,7 +1183,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                latestRecord.estimatedSavings,
+                                '₱ ${(double.parse(latestRecord.totalKwh.isEmpty ? "0" : latestRecord.totalKwh) * 6).toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
@@ -725,17 +1231,18 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.baseline,
                                       textBaseline: TextBaseline.alphabetic,
-                                      children: const [
+                                      children: [
                                         Text(
-                                          '0.45',
-                                          style: TextStyle(
+                                          _annualDegradationRate
+                                              .toStringAsFixed(2),
+                                          style: const TextStyle(
                                             fontSize: 36,
                                             fontWeight: FontWeight.w900,
                                             color: Colors.black,
                                           ),
                                         ),
-                                        SizedBox(width: 4),
-                                        Text(
+                                        const SizedBox(width: 4),
+                                        const Text(
                                           '% / yr',
                                           style: TextStyle(
                                             fontSize: 16,
@@ -757,7 +1264,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                   ],
                                 ),
 
-                                // QUESTION MARK BUTTON
                                 GestureDetector(
                                   key: _questionMarkKey,
                                   onTap: _openTooltip,
@@ -787,7 +1293,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // LINE GRAPH - EXACT 180 CANVAS HEIGHT MATCHING BAR GRAPH
+                            // LINE GRAPH
                             SizedBox(
                               height: 180,
                               child: CustomPaint(
@@ -800,12 +1306,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                             ),
                             const SizedBox(height: 12),
 
-                            // DYNAMIC X-AXIS LABELS (PURE YEARS ONLY)
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: activeSlidePoints.map((p) {
                                 final bool isCurrentYear =
-                                    p.yearLabel == '2026';
+                                    p.yearLabel ==
+                                    DateTime.now().year.toString();
                                 return Text(
                                   p.yearLabel,
                                   style: TextStyle(
@@ -820,7 +1326,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                             ),
                             const SizedBox(height: 20),
 
-                            // DEGRADATION MULTI-YEAR SLIDE NAVIGATOR
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -848,7 +1353,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     padding: EdgeInsets.zero,
                                   ),
                                   Text(
-                                    '${activeSlidePoints.first.yearLabel} - ${activeSlidePoints.last.yearLabel}',
+                                    activeSlidePoints.isNotEmpty
+                                        ? '${activeSlidePoints.first.yearLabel} - ${activeSlidePoints.last.yearLabel}'
+                                        : '',
                                     style: const TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w800,
@@ -875,7 +1382,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                             ),
                             const SizedBox(height: 20),
 
-                            // PERSISTENT ESTIMATED PANEL EFFICIENCY BAR BELOW
                             Container(
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
@@ -911,7 +1417,10 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
                                     child: LinearProgressIndicator(
-                                      value: persistentLatestEfficiency,
+                                      value: persistentLatestEfficiency.clamp(
+                                        0.0,
+                                        1.0,
+                                      ),
                                       minHeight: 10,
                                       backgroundColor: const Color(0xFFE0E0E0),
                                       valueColor:
@@ -927,7 +1436,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                         ),
                       ),
 
-                      // OVERLAY POPUP TOOLTIP
                       if (_showTooltip)
                         Positioned(
                           top: 60,
@@ -978,7 +1486,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                       SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'This info is gathered within a period of time with an advanced formula using data collected through different sensors and data gathered through the internet.',
+                                          'This info is gathered within a period of time with an advanced formula using data collected through different sensors and data gathered using the internet.',
                                           style: TextStyle(
                                             fontSize: 12,
                                             height: 1.4,
@@ -1006,6 +1514,32 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     );
   }
 
+  Widget _buildHighlightLabel(String val, bool isInProgress) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: isInProgress ? const Color(0xFFC8E6C9) : const Color(0xFFDDDDDD),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.bolt_rounded,
+          size: 12,
+          color: isInProgress ? darkGreen : Colors.black54,
+        ),
+        Text(
+          val,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: isInProgress ? darkGreen : Colors.black,
+          ),
+        ),
+      ],
+    ),
+  );
+
   Widget _buildDashedLine() {
     return Row(
       children: List.generate(
@@ -1021,7 +1555,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 }
 
-// --- CUSTOM PAINTER WITH MATCHING HORIZONTAL DASH PATTERN (7px DASH, 6.5px GAP) ---
 class _DegradationLineChartPainter extends CustomPainter {
   final Color lineColor;
   final List<DegradationYearPoint> points;
@@ -1030,14 +1563,15 @@ class _DegradationLineChartPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Helper to draw horizontal dashed lines matching the loose bar-graph pattern
+    if (points.isEmpty) return;
+
     void drawHorizontalDashedLine(Canvas canvas, Offset p1, Offset p2) {
       final Paint dashPaint = Paint()
         ..color = Colors.black12
         ..strokeWidth = 1.5;
 
-      const double dashWidth = 7.0; // Increased to match wide bar-graph dashes
-      const double dashSpace = 6.5; // Increased to match loose bar-graph gaps
+      const double dashWidth = 7.0;
+      const double dashSpace = 6.5;
       final double distance = (p2 - p1).distance;
       final Offset direction = (p2 - p1) / distance;
 
@@ -1063,7 +1597,6 @@ class _DegradationLineChartPainter extends CustomPainter {
       }
     }
 
-    // Helper to draw subtle vertical dashed lines down to the baseline
     void drawVerticalDashedLine(Canvas canvas, Offset p1, Offset p2) {
       final Paint dashPaint = Paint()
         ..color = Colors.black12
@@ -1096,7 +1629,6 @@ class _DegradationLineChartPainter extends CustomPainter {
       }
     }
 
-    // 1. DRAW 4 HORIZONTAL QUARTILE GRID LINES (0%, 25%, 50%, 75%, 100%)
     for (int quartile = 0; quartile <= 3; quartile++) {
       final double yPos = size.height * (quartile * 0.25);
       drawHorizontalDashedLine(
@@ -1106,7 +1638,6 @@ class _DegradationLineChartPainter extends CustomPainter {
       );
     }
 
-    // MAP YEAR DATA RATIOS TO CANVAS PIXEL COORDINATES
     final List<Offset> renderPoints = [];
     final int count = points.length;
 
@@ -1116,7 +1647,6 @@ class _DegradationLineChartPainter extends CustomPainter {
       renderPoints.add(Offset(x, y));
     }
 
-    // 2. DRAW VERTICAL DOTTED LINES FROM DATA POINTS TO BASELINE
     for (final point in renderPoints) {
       drawVerticalDashedLine(
         canvas,
@@ -1125,7 +1655,6 @@ class _DegradationLineChartPainter extends CustomPainter {
       );
     }
 
-    // 3. DRAW GRADIENT AREA FILL
     final Paint areaPaint = Paint()
       ..color = lineColor.withValues(alpha: 0.12)
       ..style = PaintingStyle.fill;
@@ -1151,7 +1680,6 @@ class _DegradationLineChartPainter extends CustomPainter {
 
     canvas.drawPath(areaPath, areaPaint);
 
-    // 4. DRAW MAIN BEZIER DEGRADATION TREND LINE
     final Paint linePaint = Paint()
       ..color = lineColor
       ..strokeWidth = 3.5
@@ -1175,7 +1703,6 @@ class _DegradationLineChartPainter extends CustomPainter {
 
     canvas.drawPath(path, linePaint);
 
-    // 5. DRAW DATA POINT CIRCLES
     final Paint circlePaint = Paint()
       ..color = lineColor
       ..style = PaintingStyle.fill;

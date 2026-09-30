@@ -21,7 +21,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   bool _isConfiguring = false;
 
   // Cached Stream Instance & Auth Subscription
-  Stream<QuerySnapshot<Map<String, dynamic>>>? _panelsStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _panelsStream;
   StreamSubscription<User?>? _authSubscription;
   String? _currentUid;
 
@@ -46,11 +46,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         setState(() {
           _currentUid = user?.uid;
           if (_currentUid != null) {
-            // Optimized with includeMetadataChanges: false to ignore local metadata-only triggers
             _panelsStream = FirebaseFirestore.instance
-                .collection('users')
-                .doc(_currentUid)
-                .collection('panels')
+                .collection('system_status')
+                .doc('current')
                 .snapshots(includeMetadataChanges: false);
           } else {
             _panelsStream = null;
@@ -165,6 +163,25 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                 'linked_at': FieldValue.serverTimestamp(),
                 'status': 'Online',
               });
+
+              // 3. Register panel in system_status/current so server.py accepts telemetry
+              final statusRef = FirebaseFirestore.instance
+                  .collection('system_status')
+                  .doc('current');
+
+              transaction.set(statusRef, {
+                'panels': {
+                  nodeId: {
+                    'panel_id': nodeId,
+                    'panel_name': panelName,
+                    'group': null,
+                    'panel_order': 0,
+                    'metadata': {
+                      'rated_power_w': double.tryParse(capacity) ?? 300.0,
+                    },
+                  },
+                },
+              }, SetOptions(merge: true));
             });
 
             if (mounted) {
@@ -368,7 +385,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         const SizedBox(height: 12),
 
         // Cached stream builder reference
-        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: _panelsStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
@@ -381,9 +398,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
               );
             }
 
-            final docs = snapshot.data?.docs ?? [];
+            final statusData = snapshot.data?.data() ?? {};
+            final panelsMap =
+                statusData['panels'] as Map<String, dynamic>? ?? {};
 
-            if (docs.isEmpty) {
+            if (panelsMap.isEmpty) {
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -407,16 +426,22 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
             }
 
             return Column(
-              children: docs.map((doc) {
-                final data = doc.data();
+              children: panelsMap.entries.map((entry) {
+                final pId = entry.key;
+                final pData = entry.value as Map<String, dynamic>? ?? {};
+                final pName =
+                    pData['panel_name'] ?? pData['name'] ?? 'Solar Panel';
+                final pCapacity =
+                    pData['metadata']?['rated_power_w']?.toString() ?? '300';
+
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: _buildPanelNodeTile(
-                    id: doc.id,
-                    name: data['name'] ?? 'Solar Panel',
-                    capacity: '${data['capacity']?.toString() ?? '300'} Watts',
-                    nodeId: data['node_id'] ?? doc.id,
-                    status: data['status'] ?? 'Online',
+                    id: pId,
+                    name: pName,
+                    capacity: '$pCapacity Watts',
+                    nodeId: pId,
+                    status: 'Online',
                   ),
                 );
               }).toList(),
