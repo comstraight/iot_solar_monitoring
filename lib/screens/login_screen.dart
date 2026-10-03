@@ -1,7 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import 'forgot_password_screen.dart';
 import 'account_setup.dart'; // Import AccountSetupScreen
@@ -23,12 +24,32 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
+  bool _rememberMe = false;
 
-  // Theme Constants
+  // Theme Constants (Updated to match mockup color scheme)
+  static const Color headerGreen = Color(0xFF10CE2C);
+  static const Color buttonGreen = Color(0xFF4CAE50);
+  static const Color inputBg = Color(0xFFD9D9D9);
   static const Color darkGreen = Color(0xFF092508);
-  static const Color midGreen = Color(0xFF20831B);
-  static const Color inputBg = Color(0xFFF4F7F4);
-  static const Color pageBg = Color(0xFFF8FAF8);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedEmail();
+  }
+
+  Future<void> _loadSavedEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('saved_email');
+    final remember = prefs.getBool('remember_me') ?? false;
+
+    if (remember && savedEmail != null && mounted) {
+      setState(() {
+        _emailController.text = savedEmail;
+        _rememberMe = true;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -102,16 +123,26 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
     try {
       if (_selectedTab == 0) {
-        // --- SIGN IN FLOW ---[cite: 12]
+        // --- SIGN IN FLOW ---
         final UserCredential credential = await FirebaseAuth.instance
             .signInWithEmailAndPassword(email: email, password: password);
+
+        // Save or clear remember me preference
+        final prefs = await SharedPreferences.getInstance();
+        if (_rememberMe) {
+          await prefs.setString('saved_email', email);
+          await prefs.setBool('remember_me', true);
+        } else {
+          await prefs.remove('saved_email');
+          await prefs.setBool('remember_me', false);
+        }
 
         TextInput.finishAutofillContext();
 
         bool isProfileIncomplete = true;
 
         if (credential.user != null) {
-          // Update last login timestamp in Firestore[cite: 12]
+          // Update last login timestamp in Firestore
           final userDocRef = FirebaseFirestore.instance
               .collection('users')
               .doc(credential.user!.uid);
@@ -164,7 +195,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
           );
         }
       } else {
-        // --- REGISTER FLOW ---[cite: 12]
+        // --- REGISTER FLOW ---
         final UserCredential credential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(email: email, password: password);
 
@@ -183,12 +214,12 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
         TextInput.finishAutofillContext();
 
-        // Sign out immediately so Firebase session doesn't auto-login[cite: 12]
+        // Sign out immediately so Firebase session doesn't auto-login
         await FirebaseAuth.instance.signOut();
 
         if (!mounted) return;
 
-        // Reset password fields and switch tab to Sign In[cite: 12]
+        // Reset password fields and switch tab to Sign In
         _passwordController.clear();
         _confirmPasswordController.clear();
         setState(() {
@@ -276,287 +307,333 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: pageBg,
+      backgroundColor: headerGreen,
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24.0,
-              vertical: 16.0,
-            ),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
-                boxShadow: [
-                  BoxShadow(
-                    color: darkGreen.withValues(alpha: 0.06),
-                    blurRadius: 30,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
+        bottom: false,
+        child: Column(
+          children: [
+            // TOP GREEN HEADER SECTION
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24.0,
+                vertical: 20.0,
               ),
-              child: AutofillGroup(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // SEGMENTED TAB SWITCHER
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: inputBg,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Row(
-                          children: [
-                            _buildTabOption('Sign In', 0),
-                            _buildTabOption('Register', 1),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-
-                      // EMAIL FIELD
-                      const Text(
-                        'Email address',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: darkGreen,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        textInputAction: TextInputAction.next,
-                        autofillHints: const [AutofillHints.email],
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: darkGreen,
-                          fontSize: 14,
-                        ),
-                        decoration: _buildInputDecoration(
-                          hint: 'name@example.com',
-                          prefixIcon: Icons.mail_outline_rounded,
-                        ),
-                        validator: _validateEmail,
-                      ),
-                      const SizedBox(height: 18),
-
-                      // PASSWORD FIELD
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Password',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: darkGreen,
-                            ),
-                          ),
-                          if (_selectedTab == 0)
-                            GestureDetector(
-                              onTap: _navigateToForgotPassword,
-                              child: const Text(
-                                'Forgot?',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: midGreen,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: !_isPasswordVisible,
-                        textInputAction: _selectedTab == 0
-                            ? TextInputAction.done
-                            : TextInputAction.next,
-                        autofillHints: [
-                          _selectedTab == 0
-                              ? AutofillHints.password
-                              : AutofillHints.newPassword,
-                        ],
-                        onFieldSubmitted: (_) {
-                          if (_selectedTab == 0) _handleAuth();
-                        },
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: darkGreen,
-                          fontSize: 14,
-                        ),
-                        decoration: _buildInputDecoration(
-                          hint: '••••••••••••',
-                          prefixIcon: Icons.lock_outline_rounded,
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _isPasswordVisible
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              color: Colors.grey.shade500,
-                              size: 18,
-                            ),
-                            onPressed: () {
-                              setState(
-                                () => _isPasswordVisible = !_isPasswordVisible,
-                              );
-                            },
-                          ),
-                        ),
-                        validator: _validatePassword,
-                      ),
-
-                      // CONFIRM PASSWORD FIELD (Shown only during registration)
-                      if (_selectedTab == 1) ...[
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Confirm Password',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: darkGreen,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _confirmPasswordController,
-                          obscureText: !_isConfirmPasswordVisible,
-                          textInputAction: TextInputAction.done,
-                          autofillHints: const [AutofillHints.newPassword],
-                          onFieldSubmitted: (_) => _handleAuth(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: darkGreen,
-                            fontSize: 14,
-                          ),
-                          decoration: _buildInputDecoration(
-                            hint: '••••••••••••',
-                            prefixIcon: Icons.lock_clock_outlined,
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _isConfirmPasswordVisible
-                                    ? Icons.visibility_outlined
-                                    : Icons.visibility_off_outlined,
-                                color: Colors.grey.shade500,
-                                size: 18,
-                              ),
-                              onPressed: () {
-                                setState(
-                                  () => _isConfirmPasswordVisible =
-                                      !_isConfirmPasswordVisible,
-                                );
-                              },
-                            ),
-                          ),
-                          validator: _validateConfirmPassword,
-                        ),
-                      ],
-
-                      const SizedBox(height: 24),
-
-                      // ACTION BUTTON
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: darkGreen,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                          ),
-                          onPressed: _isLoading ? null : _handleAuth,
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      _selectedTab == 0
-                                          ? 'Sign In'
-                                          : 'Create Account',
-                                      style: const TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Icon(
-                                      Icons.arrow_forward_rounded,
-                                      size: 18,
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ],
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _selectedTab == 0 ? 'Sign In' : 'Sign Up',
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
 
-  Widget _buildTabOption(String title, int index) {
-    final isSelected = _selectedTab == index;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedTab = index;
-            _formKey.currentState?.reset();
-          });
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+            // WHITE CURVED BODY CONTAINER
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(36),
+                    topRight: Radius.circular(36),
+                  ),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(28.0),
+                  child: AutofillGroup(
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 8),
+                          // HEADER TEXT
+                          const Text(
+                            'Welcome Back!',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+
+                          // EMAIL FIELD
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            textInputAction: TextInputAction.next,
+                            autofillHints: const [AutofillHints.email],
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                              fontSize: 14,
+                            ),
+                            decoration: _buildInputDecoration(
+                              hint: 'Email Address',
+                            ),
+                            validator: _validateEmail,
+                          ),
+                          const SizedBox(height: 16),
+
+                          // PASSWORD FIELD
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: !_isPasswordVisible,
+                            textInputAction: _selectedTab == 0
+                                ? TextInputAction.done
+                                : TextInputAction.next,
+                            autofillHints: [
+                              _selectedTab == 0
+                                  ? AutofillHints.password
+                                  : AutofillHints.newPassword,
+                            ],
+                            onFieldSubmitted: (_) {
+                              if (_selectedTab == 0) _handleAuth();
+                            },
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                              fontSize: 14,
+                            ),
+                            decoration: _buildInputDecoration(
+                              hint: 'Password',
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _isPasswordVisible
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: Colors.black87,
+                                  size: 22,
+                                ),
+                                onPressed: () {
+                                  setState(
+                                    () => _isPasswordVisible =
+                                        !_isPasswordVisible,
+                                  );
+                                },
+                              ),
+                            ),
+                            validator: _validatePassword,
+                          ),
+
+                          // CONFIRM PASSWORD FIELD (Shown only during registration)
+                          if (_selectedTab == 1) ...[
+                            const SizedBox(height: 16),
+                            TextFormField(
+                              controller: _confirmPasswordController,
+                              obscureText: !_isConfirmPasswordVisible,
+                              textInputAction: TextInputAction.done,
+                              autofillHints: const [AutofillHints.newPassword],
+                              onFieldSubmitted: (_) => _handleAuth(),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                color: Colors.black87,
+                                fontSize: 14,
+                              ),
+                              decoration: _buildInputDecoration(
+                                hint: 'Confirm Password',
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _isConfirmPasswordVisible
+                                        ? Icons.visibility_outlined
+                                        : Icons.visibility_off_outlined,
+                                    color: Colors.black87,
+                                    size: 22,
+                                  ),
+                                  onPressed: () {
+                                    setState(
+                                      () => _isConfirmPasswordVisible =
+                                          !_isConfirmPasswordVisible,
+                                    );
+                                  },
+                                ),
+                              ),
+                              validator: _validateConfirmPassword,
+                            ),
+                          ],
+
+                          const SizedBox(height: 12),
+
+                          // REMEMBER ME & FORGOT PASSWORD ROW
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: Checkbox(
+                                      value: _rememberMe,
+                                      activeColor: buttonGreen,
+                                      side: const BorderSide(
+                                        color: Colors.black38,
+                                        width: 1.5,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                      onChanged: (bool? value) {
+                                        setState(() {
+                                          _rememberMe = value ?? false;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Remember Me',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              GestureDetector(
+                                onTap: _navigateToForgotPassword,
+                                child: const Text(
+                                  'Forgot Password',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: buttonGreen,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 32),
+
+                          // ACTION BUTTON
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: buttonGreen,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: _isLoading ? null : _handleAuth,
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Text(
+                                      _selectedTab == 0
+                                          ? 'Log In'
+                                          : 'Create Account',
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          // BOTTOM SEGMENTED TAB SWITCHER
+                          Container(
+                            height: 48,
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: inputBg,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      if (_selectedTab != 0) {
+                                        setState(() {
+                                          _selectedTab = 0;
+                                          _formKey.currentState?.reset();
+                                        });
+                                      }
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: _selectedTab == 0
+                                            ? Colors.white
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        'Sign In',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: _selectedTab == 0
+                                              ? FontWeight.bold
+                                              : FontWeight.w500,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: GestureDetector(
+                                    onTap: () {
+                                      if (_selectedTab != 1) {
+                                        setState(() {
+                                          _selectedTab = 1;
+                                          _formKey.currentState?.reset();
+                                        });
+                                      }
+                                    },
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: _selectedTab == 1
+                                            ? Colors.white
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        'Sign Up',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: _selectedTab == 1
+                                              ? FontWeight.bold
+                                              : FontWeight.w500,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ]
-                : [],
-          ),
-          child: Text(
-            title,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-              color: isSelected ? darkGreen : Colors.grey.shade600,
+                  ),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -564,35 +641,33 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
   InputDecoration _buildInputDecoration({
     required String hint,
-    required IconData prefixIcon,
     Widget? suffixIcon,
   }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-      prefixIcon: Icon(prefixIcon, color: midGreen, size: 20),
+      hintStyle: const TextStyle(color: Colors.black45, fontSize: 14),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: inputBg,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: midGreen, width: 1.5),
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: buttonGreen, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.red, width: 1.0),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Colors.red, width: 1.5),
       ),
     );

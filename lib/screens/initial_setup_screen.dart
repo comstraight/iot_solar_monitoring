@@ -12,11 +12,12 @@ class InitialSetupScreen extends StatefulWidget {
 
 class _InitialSetupScreenState extends State<InitialSetupScreen>
     with AutomaticKeepAliveClientMixin {
-  // Theme Color Constants
+  // Theme Color Constants (Aligned with modern design system)
+  static const Color headerGreen = Color(0xFF10CE2C);
+  static const Color buttonGreen = Color(0xFF4CAE50);
+  static const Color inputBg = Color(0xFFD9D9D9);
   static const Color darkGreen = Color(0xFF092508);
-  static const Color midGreen = Color(0xFF20831B);
   static const Color cardBg = Colors.white;
-  static const Color pageBg = Color(0xFFF8FAF8);
 
   bool _isConfiguring = false;
 
@@ -68,8 +69,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: isError ? Colors.redAccent.shade700 : darkGreen,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: isError ? Colors.red.shade900 : darkGreen,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         content: Row(
           children: [
             Icon(
@@ -211,25 +212,17 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   Widget build(BuildContext context) {
     super.build(context); // Required for AutomaticKeepAliveClientMixin
     return Scaffold(
-      backgroundColor: pageBg,
-      body: Stack(
-        children: [
-          // ==================== 1. GREEN HERO HEADER ====================
-          Container(
-            width: double.infinity,
-            height: 250,
-            padding: const EdgeInsets.fromLTRB(20, 52, 20, 0),
-            decoration: const BoxDecoration(
-              color: darkGreen,
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(36)),
-              gradient: LinearGradient(
-                colors: [darkGreen, midGreen],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+      backgroundColor: headerGreen,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // ==================== 1. GREEN HEADER ====================
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24.0,
+                vertical: 20.0,
               ),
-            ),
-            child: Align(
-              alignment: Alignment.topLeft,
               child: Row(
                 children: [
                   if (Navigator.canPop(context))
@@ -249,99 +242,76 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                         ),
                       ),
                     ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
+                  const Text(
+                    'Hardware Setup',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Text(
-                      'Hardware Setup',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: darkGreen,
-                        letterSpacing: -0.3,
-                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
 
-          // ==================== 2. OVERLAPPING MAIN CONTENT CARD ====================
-          SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 110),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: cardBg,
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
+            // ==================== 2. WHITE CURVED BODY CONTAINER ====================
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(36),
+                    topRight: Radius.circular(36),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(28.0),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 300),
+                            child: _isConfiguring
+                                ? _buildLoadingState()
+                                : _buildSetupState(context),
                           ),
-                        ],
+                        ),
                       ),
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 300),
-                        child: _isConfiguring
-                            ? _buildLoadingState()
-                            : _buildSetupState(context),
-                      ),
-                    ),
-                  ),
-                ),
 
-                // ==================== 3. STICKY BOTTOM BUTTON ====================
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: midGreen,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                      const SizedBox(height: 16),
+
+                      // ==================== 3. ACTION BUTTON ====================
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: buttonGreen,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: () => _showAddPanelWizard(context),
+                          child: const Text(
+                            'Add A Setup',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ),
                       ),
-                      onPressed: () => _showAddPanelWizard(context),
-                      child: const Text(
-                        'Add A Setup',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -358,7 +328,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
             width: 44,
             height: 44,
             child: CircularProgressIndicator(
-              color: midGreen,
+              color: buttonGreen,
               strokeWidth: 3.5,
               strokeCap: StrokeCap.round,
             ),
@@ -369,7 +339,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: darkGreen,
+              color: Colors.black,
             ),
           ),
           const SizedBox(height: 8),
@@ -377,8 +347,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
             'Establishing real-time telemetry stream with Firebase Firestore.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade600,
+              fontSize: 13,
+              color: Colors.black54,
               height: 1.4,
             ),
           ),
@@ -394,16 +364,16 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.start,
       children: [
-        Text(
-          'CONNECTED SOLAR PANELS',
+        const SizedBox(height: 8),
+        const Text(
+          'Connected Solar Panels',
           style: TextStyle(
-            fontSize: 11,
+            fontSize: 22,
             fontWeight: FontWeight.bold,
-            color: Colors.grey.shade500,
-            letterSpacing: 0.8,
+            color: Colors.black,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 28),
 
         // Cached stream builder reference
         StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -414,7 +384,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
               return const Center(
                 child: Padding(
                   padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(color: midGreen),
+                  child: CircularProgressIndicator(color: buttonGreen),
                 ),
               );
             }
@@ -427,10 +397,10 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
-                margin: const EdgeInsets.only(bottom: 12),
+                margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEEEEEE),
-                  borderRadius: BorderRadius.circular(20),
+                  color: inputBg,
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Center(
                   child: Text(
@@ -438,7 +408,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,
-                      color: Colors.grey.shade700,
+                      color: Colors.black54,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -456,7 +426,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                     pData['metadata']?['rated_power_w']?.toString() ?? '300';
 
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 12),
                   child: _buildPanelNodeTile(
                     id: pId,
                     name: pName,
@@ -470,20 +440,20 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
           },
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
 
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFEEEEEE),
-            borderRadius: BorderRadius.circular(20),
+            color: inputBg,
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Text(
+          child: const Text(
             'Power on your ESP32 / Arduino node and connect to Wi-Fi before proceeding.',
             style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey.shade800,
+              fontSize: 13,
+              color: Colors.black87,
               fontWeight: FontWeight.w500,
               height: 1.3,
             ),
@@ -501,22 +471,22 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     String status = 'Online',
   }) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFEEEEEE),
-        borderRadius: BorderRadius.circular(20),
+        color: inputBg,
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
           Container(
-            width: 8,
-            height: 8,
+            width: 10,
+            height: 10,
             decoration: const BoxDecoration(
-              color: midGreen,
+              color: buttonGreen,
               shape: BoxShape.circle,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -524,17 +494,17 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
                 Text(
                   name,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: darkGreen,
+                    color: Colors.black87,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '$nodeId • $capacity',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Colors.grey.shade600,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.black54,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -544,9 +514,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
           Text(
             status,
             style: const TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.bold,
-              color: midGreen,
+              color: buttonGreen,
             ),
           ),
         ],
@@ -571,9 +541,8 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
   late final TextEditingController _capacityController;
   late final TextEditingController _nodeIdController;
 
-  static const Color darkGreen = Color(0xFF092508);
-  static const Color midGreen = Color(0xFF20831B);
-  static const Color cardBg = Colors.white;
+  static const Color buttonGreen = Color(0xFF4CAE50);
+  static const Color inputBg = Color(0xFFD9D9D9);
 
   @override
   void initState() {
@@ -599,10 +568,10 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
       ),
       child: Container(
         decoration: const BoxDecoration(
-          color: cardBg,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(36)),
         ),
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(28.0),
         child: SingleChildScrollView(
           child: Form(
             key: _formKey,
@@ -613,73 +582,61 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
                 Center(
                   child: Container(
                     width: 40,
-                    height: 5,
-                    margin: const EdgeInsets.only(bottom: 24),
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
+                      color: Colors.black26,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                 ),
                 const Text(
-                  'Link Solar Hardware',
+                  'Enter your info.',
                   style: TextStyle(
                     fontSize: 22,
-                    fontWeight: FontWeight.w800,
-                    color: darkGreen,
-                    letterSpacing: -0.5,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Configure your solar array telemetry node.',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: 28),
 
-                _buildModernTextField(
+                _buildCleanTextField(
                   controller: _panelNameController,
-                  label: 'Panel Identifier',
-                  hint: 'e.g., Roof Array - Panel 3',
-                  icon: Icons.solar_power_rounded,
+                  hint: 'Panel Identifier',
                   validator: (val) => val == null || val.trim().isEmpty
                       ? 'Please give your panel a name'
                       : null,
                 ),
                 const SizedBox(height: 16),
-                _buildModernTextField(
+                _buildCleanTextField(
                   controller: _capacityController,
-                  label: 'Rated Max Capacity (Watts)',
-                  hint: 'e.g., 300',
-                  icon: Icons.bolt_rounded,
+                  hint: 'Rated Max Capacity (Watts)',
                   keyboardType: TextInputType.number,
                   validator: (val) => val == null || val.trim().isEmpty
                       ? 'Enter rated wattage'
                       : null,
                 ),
                 const SizedBox(height: 16),
-                _buildModernTextField(
+                _buildCleanTextField(
                   controller: _nodeIdController,
-                  label: 'Microcontroller Node ID',
-                  hint: 'e.g., SOLAR-3C71BF',
-                  icon: Icons.developer_board_rounded,
+                  hint: 'Microcontroller Node ID',
                   validator: (val) => val == null || val.trim().isEmpty
                       ? 'Enter hardware Device ID'
                       : null,
                 ),
 
-                const SizedBox(height: 28),
+                const SizedBox(height: 32),
 
                 SizedBox(
                   width: double.infinity,
-                  height: 54,
+                  height: 52,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: darkGreen,
+                      backgroundColor: buttonGreen,
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
                     onPressed: () {
@@ -692,7 +649,7 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
                       }
                     },
                     child: const Text(
-                      'Initialize Telemetry Sync',
+                      'Continue',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -708,11 +665,9 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
     );
   }
 
-  Widget _buildModernTextField({
+  Widget _buildCleanTextField({
     required TextEditingController controller,
-    required String label,
     required String hint,
-    required IconData icon,
     required String? Function(String?) validator,
     TextInputType keyboardType = TextInputType.text,
   }) {
@@ -720,36 +675,41 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
       controller: controller,
       keyboardType: keyboardType,
       validator: validator,
-      style: const TextStyle(fontWeight: FontWeight.w500, color: darkGreen),
+      style: const TextStyle(
+        fontWeight: FontWeight.w500,
+        color: Colors.black87,
+        fontSize: 14,
+      ),
       decoration: InputDecoration(
-        labelText: label,
         hintText: hint,
-        labelStyle: TextStyle(color: Colors.grey.shade700, fontSize: 14),
-        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-        prefixIcon: Icon(icon, color: midGreen, size: 22),
+        hintStyle: const TextStyle(color: Colors.black45, fontSize: 14),
         filled: true,
-        fillColor: const Color(0xFFF4F7F4),
+        fillColor: inputBg,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 20,
-          vertical: 18,
+          vertical: 16,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: midGreen, width: 1.5),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: buttonGreen, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.red, width: 1.0),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.red, width: 1.5),
         ),
       ),
     );
   }
-}
-
-
-//finally done
-//firestore optimized
+} 
