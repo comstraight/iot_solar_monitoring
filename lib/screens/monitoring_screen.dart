@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class BarData {
   final String label;
@@ -43,24 +44,125 @@ class DegradationYearPoint {
 }
 
 class MonitoringScreen extends StatefulWidget {
-  final String panelId;
+  final String? panelId;
 
-  const MonitoringScreen({
-    super.key,
-    this.panelId = 'panel_01', // Scoped to specific panel
-  });
+  const MonitoringScreen({super.key, this.panelId});
 
-  @override
-  State<MonitoringScreen> createState() => _MonitoringScreenState();
-}
-
-class _MonitoringScreenState extends State<MonitoringScreen> {
   // Theme Constants
   static const Color darkGreen = Color(0xFF20831B);
   static const Color lightGreen = Color(0xFF66BB6A);
   static const Color accentOrange = Color(0xFFF1A12A);
   static const Color pageBg = Color(0xFFF4F4F4);
   static const Color cardBg = Color(0xFFEBEBEB);
+  static const Color appBarBorderGreen = Color(0xFF81E27C);
+  static const Color dropdownBg = Color(0xFFF5F5F5);
+  static const Color dropdownMenuBg = Color(0xFFF0F0F0);
+  static const Color controlBg = Color(0xFFE0E0E0);
+  static const Color energyIconBg = Color(0xFFE8F5E9);
+  static const Color savingsIconBg = Color(0xFFE0F2F1);
+  static const Color progressHighlightBg = Color(0xFFC8E6C9);
+  static const Color normalHighlightBg = Color(0xFFDDDDDD);
+
+  // Default Telemetry & System Fallbacks
+  static const String defaultPanelId = 'panel_01';
+  static const String defaultPanelName = 'SOLAR - 1';
+  static const double defaultRatedPowerW = 300.0;
+  static const double defaultAnnualDegradationRate = 0.45;
+  static const double defaultCurrentEfficiencyRatio = 1.0;
+  static const double defaultTariffRateMultiplier = 6.0;
+
+  // Firestore Collection & Field Constants
+  static const String colUsers = 'users';
+  static const String fieldDefaultPanelId = 'defaultPanelId';
+  static const String colSystemStatus = 'system_status';
+  static const String docCurrent = 'current';
+  static const String fieldPanels = 'panels';
+  static const String fieldMetadata = 'metadata';
+  static const String fieldDiagnostics = 'diagnostics';
+  static const String fieldDegradeHistory = 'degrade_history';
+  static const String fieldYearLabel = 'yearLabel';
+  static const String fieldEfficiencyRatio = 'efficiencyRatio';
+  static const String fieldPanelName = 'panel_name';
+  static const String fieldRatedPowerW = 'rated_power_w';
+  static const String fieldDegradationRateAnnual = 'degradation_rate_annual';
+  static const String fieldCurrentEfficiencyRatio = 'current_efficiency_ratio';
+  static const String colAnalytics = 'analytics';
+  static const String subColDaily = 'daily';
+  static const String subColWeekly = 'weekly';
+  static const String subColAnnually = 'annually';
+  static const String fieldBars = 'bars';
+  static const String fieldRawKwh = 'raw_kwh';
+  static const String fieldVal = 'val';
+  static const String fieldDisplayLabel = 'displayLabel';
+  static const String fieldTitle = 'title';
+  static const String fieldTotalKwh = 'totalKwh';
+
+  // Condition & Status Options
+  static const String conditionGood = 'In good condition';
+  static const String conditionFair = 'In fair condition';
+  static const String conditionBad = 'In bad condition';
+  static const String statusActive = 'Active';
+  static const String statusInactive = 'Inactive';
+  static const String statusSensorProblems = 'Sensor Problems';
+  static const String sensorLight = 'Light Sensor';
+  static const String sensorTemperature = 'Temperature Sensor';
+  static const String sensorHumidity = 'Humidity Sensor';
+  static const String statusWorking = 'Working';
+  static const String statusError = 'Error';
+
+  // UI Text Strings & Labels
+  static const String titleMonitoring = 'Monitoring';
+  static const String titleSensorDiagnostics = 'Sensor Diagnostics';
+  static const String titlePerformance = 'Performance';
+  static const String titleEnergyProduction = 'Energy Production';
+  static const String titleTotalEnergy = 'Total Energy';
+  static const String titleTotalSavings = 'Total Savings';
+  static const String titlePanelDiagnostics = 'Panel Health Diagnostics';
+  static const String titleDegradationRate = 'Degradation Rate';
+  static const String titlePanelEfficiency = 'Estimated Panel Efficiency';
+  static const String tooltipDiagnosticInfo =
+      'This info is gathered within a period of time with an advanced formula using data collected through different sensors and data gathered using the internet.';
+  static const String timeframeDaily = 'Daily';
+  static const String timeframeWeekly = 'Weekly';
+  static const String timeframeAnnually = 'Annually';
+  static const String labelFirstHalf = 'First Half';
+  static const String labelSecondHalf = 'Second Half';
+  static const String unitKwh = 'kWh';
+  static const String unitWatts = 'W';
+  static const String unitDegradation = '% / yr';
+  static const String unitPercent = '%';
+  static const String currencyPesos = '₱';
+  static const String titleLoading = 'Loading...';
+
+  // Calendar & Calculation Constants
+  static const List<String> monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  static const double wattsPerKw = 1000.0;
+  static const double scrollThreshold = 120.0;
+  static const int tooltipFadeDelayMs = 1500;
+  static const int tooltipFadeAnimMs = 300;
+  static const int pageAnimMs = 300;
+  static const int appBarAnimMs = 200;
+
+  @override
+  State<MonitoringScreen> createState() => _MonitoringScreenState();
+}
+
+class _MonitoringScreenState extends State<MonitoringScreen> {
+  // Effective Panel ID resolved dynamically
+  String _effectivePanelId = MonitoringScreen.defaultPanelId;
 
   // Timeframe & Page Controllers
   int _selectedTimeframe = 0; // 0: Daily, 1: Weekly, 2: Annually
@@ -75,8 +177,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   bool _showPanelNameInAppBar = false;
 
   // Panel Condition & Status Options
-  String _selectedCondition = 'In good condition';
-  String _selectedStatus = 'Active';
+  String _selectedCondition = MonitoringScreen.conditionGood;
+  String _selectedStatus = MonitoringScreen.statusActive;
 
   // Tooltip Overlay & Fade States
   bool _showTooltip = false;
@@ -88,10 +190,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   StreamSubscription<QuerySnapshot>? _analyticsSubscription;
 
   // Panel Data State
-  String _panelName = 'SOLAR - 1';
-  double _panelRatedPowerW = 300.0;
-  double _annualDegradationRate = 0.45;
-  double _currentEfficiencyRatio = 1.0;
+  String _panelName = MonitoringScreen.defaultPanelName;
+  double _panelRatedPowerW = MonitoringScreen.defaultRatedPowerW;
+  double _annualDegradationRate = MonitoringScreen.defaultAnnualDegradationRate;
+  double _currentEfficiencyRatio =
+      MonitoringScreen.defaultCurrentEfficiencyRatio;
 
   // Dynamic Datasets fetched from Firestore
   List<MonitoringRecord> _dailyRecords = [];
@@ -106,51 +209,97 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     _pageController = PageController(initialPage: _activePageIndex);
     _scrollController = ScrollController()..addListener(_onScroll);
 
+    _resolvePanelIdAndInit();
+  }
+
+  Future<void> _resolvePanelIdAndInit() async {
+    if (widget.panelId != null &&
+        widget.panelId!.isNotEmpty &&
+        widget.panelId != MonitoringScreen.defaultPanelId) {
+      _effectivePanelId = widget.panelId!;
+    } else {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection(MonitoringScreen.colUsers)
+              .doc(user.uid)
+              .get();
+          if (userDoc.exists && userDoc.data() != null) {
+            final data = userDoc.data()!;
+            final defaultId = data[MonitoringScreen.fieldDefaultPanelId]
+                ?.toString();
+            if (defaultId != null && defaultId.isNotEmpty) {
+              _effectivePanelId = defaultId;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error resolving default panel ID: $e');
+        }
+      }
+    }
+
+    if (!mounted) return;
     _initStatusSubscription();
     _listenToAnalyticsFirestore();
   }
 
   void _initStatusSubscription() {
-    // 1. Single persistent listener to Specific Panel Details in Live System Status
+    _statusSubscription?.cancel();
     _statusSubscription = FirebaseFirestore.instance
-        .collection('system_status')
-        .doc('current')
+        .collection(MonitoringScreen.colSystemStatus)
+        .doc(MonitoringScreen.docCurrent)
         .snapshots(includeMetadataChanges: false)
         .listen((snapshot) {
           if (!mounted || !snapshot.exists || snapshot.data() == null) return;
 
           final data = snapshot.data() as Map<String, dynamic>;
-          final panels = data['panels'] as Map<String, dynamic>? ?? {};
+          final panels =
+              data[MonitoringScreen.fieldPanels] as Map<String, dynamic>? ?? {};
 
-          if (panels.containsKey(widget.panelId)) {
-            final panelDoc = panels[widget.panelId] as Map<String, dynamic>;
+          if (panels.containsKey(_effectivePanelId)) {
+            final panelDoc = panels[_effectivePanelId] as Map<String, dynamic>;
             final metadata =
-                panelDoc['metadata'] as Map<String, dynamic>? ?? {};
+                panelDoc[MonitoringScreen.fieldMetadata]
+                    as Map<String, dynamic>? ??
+                {};
             final diagnostics =
-                panelDoc['diagnostics'] as Map<String, dynamic>? ?? {};
+                panelDoc[MonitoringScreen.fieldDiagnostics]
+                    as Map<String, dynamic>? ??
+                {};
 
-            final historyRaw = (diagnostics['degrade_history'] as List?) ?? [];
+            final historyRaw =
+                (diagnostics[MonitoringScreen.fieldDegradeHistory] as List?) ??
+                [];
             List<DegradationYearPoint> points = historyRaw.map((e) {
               final m = e as Map<String, dynamic>;
               return DegradationYearPoint(
-                yearLabel: m['yearLabel']?.toString() ?? '',
+                yearLabel: m[MonitoringScreen.fieldYearLabel]?.toString() ?? '',
                 efficiencyRatio:
-                    (m['efficiencyRatio'] as num?)?.toDouble() ?? 1.0,
+                    (m[MonitoringScreen.fieldEfficiencyRatio] as num?)
+                        ?.toDouble() ??
+                    MonitoringScreen.defaultCurrentEfficiencyRatio,
               );
             }).toList();
 
             setState(() {
-              _panelName = panelDoc['panel_name'] ?? widget.panelId;
+              _panelName =
+                  panelDoc[MonitoringScreen.fieldPanelName] ??
+                  _effectivePanelId;
               _panelRatedPowerW =
-                  (metadata['rated_power_w'] as num?)?.toDouble() ?? 300.0;
+                  (metadata[MonitoringScreen.fieldRatedPowerW] as num?)
+                      ?.toDouble() ??
+                  MonitoringScreen.defaultRatedPowerW;
               _annualDegradationRate =
-                  (diagnostics['degradation_rate_annual'] as num?)
+                  (diagnostics[MonitoringScreen.fieldDegradationRateAnnual]
+                          as num?)
                       ?.toDouble() ??
-                  0.45;
+                  MonitoringScreen.defaultAnnualDegradationRate;
               _currentEfficiencyRatio =
-                  (diagnostics['current_efficiency_ratio'] as num?)
+                  (diagnostics[MonitoringScreen.fieldCurrentEfficiencyRatio]
+                          as num?)
                       ?.toDouble() ??
-                  1.0;
+                  MonitoringScreen.defaultCurrentEfficiencyRatio;
 
               if (points.isNotEmpty) {
                 _degradationSlides = [points];
@@ -162,17 +311,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   }
 
   void _listenToAnalyticsFirestore() {
-    // 2. Listen to Scoped Panel Analytics History according to timeframe
     final timeframeCol = _selectedTimeframe == 0
-        ? 'daily'
+        ? MonitoringScreen.subColDaily
         : _selectedTimeframe == 1
-        ? 'weekly'
-        : 'annually';
+        ? MonitoringScreen.subColWeekly
+        : MonitoringScreen.subColAnnually;
 
     _analyticsSubscription?.cancel();
     _analyticsSubscription = FirebaseFirestore.instance
-        .collection('analytics')
-        .doc(widget.panelId)
+        .collection(MonitoringScreen.colAnalytics)
+        .doc(_effectivePanelId)
         .collection(timeframeCol)
         .snapshots(includeMetadataChanges: false)
         .listen((snapshot) {
@@ -186,38 +334,23 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     List<MonitoringRecord> records = [];
 
     if (_selectedTimeframe == 2) {
-      // Ported annual halving logic from AnalyticsScreen
-      final monthNames = [
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec',
-      ];
-
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final yearId = doc.id;
-        final barsRaw = data['bars'] as Map<String, dynamic>? ?? {};
+        final barsRaw =
+            data[MonitoringScreen.fieldBars] as Map<String, dynamic>? ?? {};
 
         // 1. First Half (Jan - Jun)
         double firstHalfTotal = 0.0;
         double firstHalfPeak = 0.0;
         for (int m = 1; m <= 6; m++) {
-          final monthKey = monthNames[m - 1];
+          final monthKey = MonitoringScreen.monthNames[m - 1];
           final rawVal = barsRaw[monthKey];
           double v = 0.0;
           if (rawVal is Map) {
             v =
-                (rawVal['raw_kwh'] as num?)?.toDouble() ??
-                (rawVal['val'] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldRawKwh] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldVal] as num?)?.toDouble() ??
                 0.0;
           } else if (rawVal is num) {
             v = rawVal.toDouble();
@@ -227,22 +360,23 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         }
 
         final firstHalfCeiling = max(
-          _panelRatedPowerW / 1000.0,
+          _panelRatedPowerW / MonitoringScreen.wattsPerKw,
           firstHalfPeak > 0 ? firstHalfPeak : 1.0,
         );
 
         List<BarData> firstHalfBars = [];
         for (int m = 1; m <= 6; m++) {
-          final monthKey = monthNames[m - 1];
+          final monthKey = MonitoringScreen.monthNames[m - 1];
           final rawVal = barsRaw[monthKey];
           double v = 0.0;
           String displayLabel = '';
           if (rawVal is Map) {
             v =
-                (rawVal['raw_kwh'] as num?)?.toDouble() ??
-                (rawVal['val'] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldRawKwh] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldVal] as num?)?.toDouble() ??
                 0.0;
-            displayLabel = rawVal['displayLabel']?.toString() ?? '';
+            displayLabel =
+                rawVal[MonitoringScreen.fieldDisplayLabel]?.toString() ?? '';
           } else if (rawVal is num) {
             v = rawVal.toDouble();
           }
@@ -258,7 +392,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               peakVal: isPeak
                   ? (displayLabel.isNotEmpty
                         ? displayLabel
-                        : '${(v * 1000).toInt()} W')
+                        : '${(v * MonitoringScreen.wattsPerKw).toInt()} ${MonitoringScreen.unitWatts}')
                   : '',
             ),
           );
@@ -266,7 +400,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
         records.add(
           MonitoringRecord(
-            title: '$yearId - First Half',
+            title: '$yearId - ${MonitoringScreen.labelFirstHalf}',
             bars: firstHalfBars,
             totalKwh: firstHalfTotal.toStringAsFixed(0),
           ),
@@ -276,13 +410,13 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         double secondHalfTotal = 0.0;
         double secondHalfPeak = 0.0;
         for (int m = 7; m <= 12; m++) {
-          final monthKey = monthNames[m - 1];
+          final monthKey = MonitoringScreen.monthNames[m - 1];
           final rawVal = barsRaw[monthKey];
           double v = 0.0;
           if (rawVal is Map) {
             v =
-                (rawVal['raw_kwh'] as num?)?.toDouble() ??
-                (rawVal['val'] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldRawKwh] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldVal] as num?)?.toDouble() ??
                 0.0;
           } else if (rawVal is num) {
             v = rawVal.toDouble();
@@ -292,22 +426,23 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         }
 
         final secondHalfCeiling = max(
-          _panelRatedPowerW / 1000.0,
+          _panelRatedPowerW / MonitoringScreen.wattsPerKw,
           secondHalfPeak > 0 ? secondHalfPeak : 1.0,
         );
 
         List<BarData> secondHalfBars = [];
         for (int m = 7; m <= 12; m++) {
-          final monthKey = monthNames[m - 1];
+          final monthKey = MonitoringScreen.monthNames[m - 1];
           final rawVal = barsRaw[monthKey];
           double v = 0.0;
           String displayLabel = '';
           if (rawVal is Map) {
             v =
-                (rawVal['raw_kwh'] as num?)?.toDouble() ??
-                (rawVal['val'] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldRawKwh] as num?)?.toDouble() ??
+                (rawVal[MonitoringScreen.fieldVal] as num?)?.toDouble() ??
                 0.0;
-            displayLabel = rawVal['displayLabel']?.toString() ?? '';
+            displayLabel =
+                rawVal[MonitoringScreen.fieldDisplayLabel]?.toString() ?? '';
           } else if (rawVal is num) {
             v = rawVal.toDouble();
           }
@@ -323,7 +458,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               peakVal: isPeak
                   ? (displayLabel.isNotEmpty
                         ? displayLabel
-                        : '${(v * 1000).toInt()} W')
+                        : '${(v * MonitoringScreen.wattsPerKw).toInt()} ${MonitoringScreen.unitWatts}')
                   : '',
             ),
           );
@@ -331,28 +466,31 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
         records.add(
           MonitoringRecord(
-            title: '$yearId - Second Half',
+            title: '$yearId - ${MonitoringScreen.labelSecondHalf}',
             bars: secondHalfBars,
             totalKwh: secondHalfTotal.toStringAsFixed(0),
           ),
         );
       }
     } else {
-      // Standard processing for Daily and Weekly views
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
-        final title = data['title'] as String? ?? '';
+        final title = data[MonitoringScreen.fieldTitle] as String? ?? '';
         final totalKwh =
-            (data['totalKwh'] as num?)?.toDouble().toStringAsFixed(0) ?? '0';
-        final barsRaw = data['bars'] as Map<String, dynamic>? ?? {};
+            (data[MonitoringScreen.fieldTotalKwh] as num?)
+                ?.toDouble()
+                .toStringAsFixed(0) ??
+            '0';
+        final barsRaw =
+            data[MonitoringScreen.fieldBars] as Map<String, dynamic>? ?? {};
 
         double peakVal = 0.0;
         barsRaw.forEach((key, val) {
           double v = 0.0;
           if (val is Map) {
             v =
-                (val['raw_kwh'] as num?)?.toDouble() ??
-                (val['val'] as num?)?.toDouble() ??
+                (val[MonitoringScreen.fieldRawKwh] as num?)?.toDouble() ??
+                (val[MonitoringScreen.fieldVal] as num?)?.toDouble() ??
                 0.0;
           } else if (val is num) {
             v = val.toDouble();
@@ -361,7 +499,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         });
 
         final ceiling = max(
-          _panelRatedPowerW / 1000.0,
+          _panelRatedPowerW / MonitoringScreen.wattsPerKw,
           peakVal > 0 ? peakVal : 1.0,
         );
 
@@ -372,10 +510,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
           if (val is Map) {
             rawVal =
-                (val['raw_kwh'] as num?)?.toDouble() ??
-                (val['val'] as num?)?.toDouble() ??
+                (val[MonitoringScreen.fieldRawKwh] as num?)?.toDouble() ??
+                (val[MonitoringScreen.fieldVal] as num?)?.toDouble() ??
                 0.0;
-            displayLabel = val['displayLabel']?.toString() ?? '';
+            displayLabel =
+                val[MonitoringScreen.fieldDisplayLabel]?.toString() ?? '';
           } else if (val is num) {
             rawVal = val.toDouble();
           }
@@ -391,7 +530,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               peakVal: isPeak
                   ? (displayLabel.isNotEmpty
                         ? displayLabel
-                        : '${(rawVal * 1000).toInt()} W')
+                        : '${(rawVal * MonitoringScreen.wattsPerKw).toInt()} ${MonitoringScreen.unitWatts}')
                   : '',
             ),
           );
@@ -442,7 +581,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
   void _onScroll() {
     final isScrolledPast =
-        _scrollController.hasClients && _scrollController.offset > 120;
+        _scrollController.hasClients &&
+        _scrollController.offset > MonitoringScreen.scrollThreshold;
     if (isScrolledPast != _showPanelNameInAppBar) {
       setState(() => _showPanelNameInAppBar = isScrolledPast);
     }
@@ -460,19 +600,25 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   void _triggerFadeTimerOnTouch() {
     if (!_showTooltip || _fadeTimer != null) return;
 
-    _fadeTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
-      setState(() {
-        _tooltipVisible = false;
-      });
-      Future.delayed(const Duration(milliseconds: 300), () {
+    _fadeTimer = Timer(
+      const Duration(milliseconds: MonitoringScreen.tooltipFadeDelayMs),
+      () {
         if (!mounted) return;
         setState(() {
-          _showTooltip = false;
-          _fadeTimer = null;
+          _tooltipVisible = false;
         });
-      });
-    });
+        Future.delayed(
+          const Duration(milliseconds: MonitoringScreen.tooltipFadeAnimMs),
+          () {
+            if (!mounted) return;
+            setState(() {
+              _showTooltip = false;
+              _fadeTimer = null;
+            });
+          },
+        );
+      },
+    );
   }
 
   void _showSensorStatusModal() {
@@ -483,12 +629,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       ),
       builder: (context) {
         final sensors = [
-          {'name': 'Light Sensor', 'working': true},
+          {'name': MonitoringScreen.sensorLight, 'working': true},
           {
-            'name': 'Temperature Sensor',
-            'working': _selectedStatus != 'Sensor Problems',
+            'name': MonitoringScreen.sensorTemperature,
+            'working': _selectedStatus != MonitoringScreen.statusSensorProblems,
           },
-          {'name': 'Humidity Sensor', 'working': true},
+          {'name': MonitoringScreen.sensorHumidity, 'working': true},
         ];
 
         return Container(
@@ -498,7 +644,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Sensor Diagnostics',
+                MonitoringScreen.titleSensorDiagnostics,
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
@@ -527,7 +673,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            isWorking ? 'Working' : 'Error',
+                            isWorking
+                                ? MonitoringScreen.statusWorking
+                                : MonitoringScreen.statusError,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
@@ -561,7 +709,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     if (index >= 0 && index < totalRecords && _pageController.hasClients) {
       _pageController.animateToPage(
         index,
-        duration: const Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: MonitoringScreen.pageAnimMs),
         curve: Curves.easeInOut,
       );
     }
@@ -571,7 +719,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: MonitoringScreen.dropdownBg,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
@@ -594,12 +742,21 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             fontWeight: FontWeight.w600,
             color: Colors.black87,
           ),
-          dropdownColor: const Color(0xFFF0F0F0),
+          dropdownColor: MonitoringScreen.dropdownMenuBg,
           borderRadius: BorderRadius.circular(16),
           items: const [
-            DropdownMenuItem(value: 0, child: Text('Daily')),
-            DropdownMenuItem(value: 1, child: Text('Weekly')),
-            DropdownMenuItem(value: 2, child: Text('Annually')),
+            DropdownMenuItem(
+              value: 0,
+              child: Text(MonitoringScreen.timeframeDaily),
+            ),
+            DropdownMenuItem(
+              value: 1,
+              child: Text(MonitoringScreen.timeframeWeekly),
+            ),
+            DropdownMenuItem(
+              value: 2,
+              child: Text(MonitoringScreen.timeframeAnnually),
+            ),
           ],
           onChanged: (int? newValue) {
             if (newValue != null) {
@@ -622,7 +779,10 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     );
     final MonitoringRecord activeRecord = records.isNotEmpty
         ? records[safeIndex]
-        : const MonitoringRecord(title: 'Loading...', bars: []);
+        : const MonitoringRecord(
+            title: MonitoringScreen.titleLoading,
+            bars: [],
+          );
     final MonitoringRecord latestRecord = records.isNotEmpty
         ? records.last
         : const MonitoringRecord(title: '', bars: []);
@@ -636,23 +796,24 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         : [];
     final double persistentLatestEfficiency = _currentEfficiencyRatio;
 
-    final Color statusColor = _selectedStatus == 'Sensor Problems'
+    final Color statusColor =
+        _selectedStatus == MonitoringScreen.statusSensorProblems
         ? Colors.red
-        : _selectedStatus == 'Inactive'
+        : _selectedStatus == MonitoringScreen.statusInactive
         ? Colors.grey
         : Colors.green;
 
     return Listener(
       onPointerDown: (_) => _triggerFadeTimerOnTouch(),
       child: Scaffold(
-        backgroundColor: pageBg,
+        backgroundColor: MonitoringScreen.pageBg,
         body: CustomScrollView(
           controller: _scrollController,
           slivers: [
             SliverAppBar(
               pinned: true,
               elevation: 0,
-              backgroundColor: pageBg,
+              backgroundColor: MonitoringScreen.pageBg,
               toolbarHeight: 70,
               automaticallyImplyLeading: false,
               title: Row(
@@ -664,7 +825,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       height: 48,
                       width: 48,
                       decoration: const BoxDecoration(
-                        color: cardBg,
+                        color: MonitoringScreen.cardBg,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -675,7 +836,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                     ),
                   ),
                   AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
+                    duration: const Duration(
+                      milliseconds: MonitoringScreen.appBarAnimMs,
+                    ),
                     transitionBuilder: (child, animation) => FadeTransition(
                       opacity: animation,
                       child: SlideTransition(
@@ -687,7 +850,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       ),
                     ),
                     child: Text(
-                      _showPanelNameInAppBar ? _panelName : 'Monitoring',
+                      _showPanelNameInAppBar
+                          ? _panelName
+                          : MonitoringScreen.titleMonitoring,
                       key: ValueKey<bool>(_showPanelNameInAppBar),
                       style: const TextStyle(
                         fontSize: 20,
@@ -700,10 +865,10 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                     height: 48,
                     width: 48,
                     decoration: BoxDecoration(
-                      color: cardBg,
+                      color: MonitoringScreen.cardBg,
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: const Color(0xFF81E27C),
+                        color: MonitoringScreen.appBarBorderGreen,
                         width: 1.5,
                       ),
                     ),
@@ -723,12 +888,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               ),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  // --- STATUS CARD ---
+                  // STATUS CARD
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: cardBg,
+                      color: MonitoringScreen.cardBg,
                       borderRadius: BorderRadius.circular(24),
                     ),
                     child: Row(
@@ -786,16 +951,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                 ),
                                 items: const [
                                   DropdownMenuItem(
-                                    value: 'In good condition',
-                                    child: Text('In good condition'),
+                                    value: MonitoringScreen.conditionGood,
+                                    child: Text(MonitoringScreen.conditionGood),
                                   ),
                                   DropdownMenuItem(
-                                    value: 'In fair condition',
-                                    child: Text('In fair condition'),
+                                    value: MonitoringScreen.conditionFair,
+                                    child: Text(MonitoringScreen.conditionFair),
                                   ),
                                   DropdownMenuItem(
-                                    value: 'In bad condition',
-                                    child: Text('In bad condition'),
+                                    value: MonitoringScreen.conditionBad,
+                                    child: Text(MonitoringScreen.conditionBad),
                                   ),
                                 ],
                                 onChanged: (value) {
@@ -820,7 +985,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   const SizedBox(height: 24),
 
                   const Text(
-                    'Performance',
+                    MonitoringScreen.titlePerformance,
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -829,11 +994,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // --- BAR CHART CARD ---
+                  // BAR CHART CARD
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: cardBg,
+                      color: MonitoringScreen.cardBg,
                       borderRadius: BorderRadius.circular(28),
                     ),
                     child: Column(
@@ -861,7 +1026,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     ),
                                     const SizedBox(width: 6),
                                     const Text(
-                                      'kWh',
+                                      MonitoringScreen.unitKwh,
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w700,
@@ -872,7 +1037,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Energy Production',
+                                  MonitoringScreen.titleEnergyProduction,
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.black54,
@@ -949,13 +1114,18 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
                                                         Color barColor;
                                                         if (item.isInProgress) {
-                                                          barColor = lightGreen;
+                                                          barColor =
+                                                              MonitoringScreen
+                                                                  .lightGreen;
                                                         } else if (item
                                                             .isHighlight) {
                                                           barColor =
-                                                              accentOrange;
+                                                              MonitoringScreen
+                                                                  .accentOrange;
                                                         } else {
-                                                          barColor = darkGreen;
+                                                          barColor =
+                                                              MonitoringScreen
+                                                                  .darkGreen;
                                                         }
 
                                                         return Expanded(
@@ -1015,7 +1185,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                                     fontSize: 10,
                                                     fontWeight: FontWeight.w800,
                                                     color: item.isInProgress
-                                                        ? darkGreen
+                                                        ? MonitoringScreen
+                                                              .darkGreen
                                                         : Colors.black87,
                                                   ),
                                                 ),
@@ -1035,7 +1206,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFE0E0E0),
+                            color: MonitoringScreen.controlBg,
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: Row(
@@ -1081,14 +1252,14 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // --- PERSISTENT SUMMARY KPI BOXES ---
+                  // PERSISTENT SUMMARY KPI BOXES
                   Row(
                     children: [
                       Expanded(
                         child: Container(
                           padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
-                            color: cardBg,
+                            color: MonitoringScreen.cardBg,
                             borderRadius: BorderRadius.circular(22),
                           ),
                           child: Column(
@@ -1099,7 +1270,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
-                                    'Total Energy',
+                                    MonitoringScreen.titleTotalEnergy,
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -1109,13 +1280,13 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: const BoxDecoration(
-                                      color: Color(0xFFE8F5E9),
+                                      color: MonitoringScreen.energyIconBg,
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(
                                       Icons.bolt_rounded,
                                       size: 16,
-                                      color: darkGreen,
+                                      color: MonitoringScreen.darkGreen,
                                     ),
                                   ),
                                 ],
@@ -1135,7 +1306,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                   ),
                                   const SizedBox(width: 4),
                                   const Text(
-                                    'kWh',
+                                    MonitoringScreen.unitKwh,
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
@@ -1153,7 +1324,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
-                            color: cardBg,
+                            color: MonitoringScreen.cardBg,
                             borderRadius: BorderRadius.circular(22),
                           ),
                           child: Column(
@@ -1164,7 +1335,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     MainAxisAlignment.spaceBetween,
                                 children: [
                                   const Text(
-                                    'Total Savings',
+                                    MonitoringScreen.titleTotalSavings,
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
@@ -1174,7 +1345,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                   Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: const BoxDecoration(
-                                      color: Color(0xFFE0F2F1),
+                                      color: MonitoringScreen.savingsIconBg,
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(
@@ -1187,11 +1358,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                               ),
                               const SizedBox(height: 12),
                               Text(
-                                '₱ ${(double.parse(latestRecord.totalKwh.isEmpty ? "0" : latestRecord.totalKwh) * 6).toStringAsFixed(2)}',
+                                '${MonitoringScreen.currencyPesos} ${((double.tryParse(latestRecord.totalKwh) ?? 0.0) * MonitoringScreen.defaultTariffRateMultiplier).toStringAsFixed(2)}',
                                 style: const TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
-                                  color: darkGreen,
+                                  color: MonitoringScreen.darkGreen,
                                 ),
                               ),
                             ],
@@ -1202,9 +1373,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // --- DEGRADATION DIAGNOSTICS CARD ---
+                  // DEGRADATION DIAGNOSTICS CARD
                   const Text(
-                    'Panel Health Diagnostics',
+                    MonitoringScreen.titlePanelDiagnostics,
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
@@ -1219,7 +1390,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: cardBg,
+                          color: MonitoringScreen.cardBg,
                           borderRadius: BorderRadius.circular(28),
                         ),
                         child: Column(
@@ -1247,7 +1418,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                         ),
                                         const SizedBox(width: 4),
                                         const Text(
-                                          '% / yr',
+                                          MonitoringScreen.unitDegradation,
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.w700,
@@ -1258,7 +1429,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     ),
                                     const SizedBox(height: 4),
                                     const Text(
-                                      'Degradation Rate',
+                                      MonitoringScreen.titleDegradationRate,
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.black54,
@@ -1279,7 +1450,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                       shape: BoxShape.circle,
                                       border: Border.all(
                                         color: _showTooltip
-                                            ? darkGreen
+                                            ? MonitoringScreen.darkGreen
                                             : Colors.grey.shade400,
                                         width: 1.5,
                                       ),
@@ -1288,7 +1459,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                       Icons.help_outline_rounded,
                                       size: 18,
                                       color: _showTooltip
-                                          ? darkGreen
+                                          ? MonitoringScreen.darkGreen
                                           : Colors.black87,
                                     ),
                                   ),
@@ -1303,7 +1474,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                               child: CustomPaint(
                                 size: Size.infinite,
                                 painter: _DegradationLineChartPainter(
-                                  lineColor: darkGreen,
+                                  lineColor: MonitoringScreen.darkGreen,
                                   points: activeSlidePoints,
                                 ),
                               ),
@@ -1322,7 +1493,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                     fontSize: 10,
                                     fontWeight: FontWeight.w800,
                                     color: isCurrentYear
-                                        ? darkGreen
+                                        ? MonitoringScreen.darkGreen
                                         : Colors.black54,
                                   ),
                                 );
@@ -1336,7 +1507,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                 vertical: 6,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFE0E0E0),
+                                color: MonitoringScreen.controlBg,
                                 borderRadius: BorderRadius.circular(16),
                               ),
                               child: Row(
@@ -1400,7 +1571,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                         MainAxisAlignment.spaceBetween,
                                     children: [
                                       const Text(
-                                        'Estimated Panel Efficiency',
+                                        MonitoringScreen.titlePanelEfficiency,
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.bold,
@@ -1408,11 +1579,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                         ),
                                       ),
                                       Text(
-                                        '${(persistentLatestEfficiency * 100).toInt()}%',
+                                        '${(persistentLatestEfficiency * 100).toInt()}${MonitoringScreen.unitPercent}',
                                         style: const TextStyle(
                                           fontSize: 14,
                                           fontWeight: FontWeight.w900,
-                                          color: darkGreen,
+                                          color: MonitoringScreen.darkGreen,
                                         ),
                                       ),
                                     ],
@@ -1426,10 +1597,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                         1.0,
                                       ),
                                       minHeight: 10,
-                                      backgroundColor: const Color(0xFFE0E0E0),
+                                      backgroundColor:
+                                          MonitoringScreen.controlBg,
                                       valueColor:
                                           const AlwaysStoppedAnimation<Color>(
-                                            darkGreen,
+                                            MonitoringScreen.darkGreen,
                                           ),
                                     ),
                                   ),
@@ -1446,7 +1618,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                           right: 12,
                           left: 12,
                           child: AnimatedOpacity(
-                            duration: const Duration(milliseconds: 300),
+                            duration: const Duration(
+                              milliseconds: MonitoringScreen.tooltipFadeAnimMs,
+                            ),
                             opacity: _tooltipVisible ? 1.0 : 0.0,
                             child: Stack(
                               children: [
@@ -1485,12 +1659,13 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                                       Icon(
                                         Icons.info_outline_rounded,
                                         size: 18,
-                                        color: darkGreen,
+                                        color: MonitoringScreen.darkGreen,
                                       ),
                                       SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          'This info is gathered within a period of time with an advanced formula using data collected through different sensors and data gathered using the internet.',
+                                          MonitoringScreen
+                                              .tooltipDiagnosticInfo,
                                           style: TextStyle(
                                             fontSize: 12,
                                             height: 1.4,
@@ -1521,7 +1696,9 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   Widget _buildHighlightLabel(String val, bool isInProgress) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
-      color: isInProgress ? const Color(0xFFC8E6C9) : const Color(0xFFDDDDDD),
+      color: isInProgress
+          ? MonitoringScreen.progressHighlightBg
+          : MonitoringScreen.normalHighlightBg,
       borderRadius: BorderRadius.circular(12),
     ),
     child: Column(
@@ -1530,14 +1707,14 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         Icon(
           Icons.bolt_rounded,
           size: 12,
-          color: isInProgress ? darkGreen : Colors.black54,
+          color: isInProgress ? MonitoringScreen.darkGreen : Colors.black54,
         ),
         Text(
           val,
           style: TextStyle(
             fontSize: 9,
             fontWeight: FontWeight.w800,
-            color: isInProgress ? darkGreen : Colors.black,
+            color: isInProgress ? MonitoringScreen.darkGreen : Colors.black,
           ),
         ),
       ],

@@ -16,10 +16,19 @@ class FeedbackScreen extends StatefulWidget {
 
   static const Color primaryGreen = Color(0xFF15803D);
   static const Color darkGreen = Color(0xFF032212);
+  static const Color headerGradientMid = Color(0xFF0F5229);
   static const Color lightGreenBg = Color(0xFFDCFCE7);
+  static const Color chipBgColor = Color(0xFFF8FAFC);
+  static const Color placeholderTextColor = Color(0xFF94A3B8);
   static const Color textDark = Color(0xFF0F172A);
   static const Color textMuted = Color(0xFF64748B);
   static const Color borderColor = Color(0xFFE2E8F0);
+
+  static const int minMessageLength = 10;
+  static const int maxMessageLength = 1000;
+  static const String defaultAnonymousEmail = 'Anonymous';
+  static const String defaultAnonymousUid = 'anonymous';
+  static const String defaultFeedbackStatus = 'pending';
 
   @override
   State<FeedbackScreen> createState() => _FeedbackScreenState();
@@ -103,7 +112,9 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   bool _validateForm() {
     final len = _charCountNotifier.value;
-    final isTextValid = len >= 10 && len <= 1000;
+    final isTextValid =
+        len >= FeedbackScreen.minMessageLength &&
+        len <= FeedbackScreen.maxMessageLength;
     final isEmailValid = _isEmailValidNotifier.value;
     return isTextValid && isEmailValid;
   }
@@ -125,11 +136,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         'message': _feedbackController.text.trim(),
         'senderEmail': inputEmail.isNotEmpty
             ? inputEmail
-            : (currentUser?.email ?? 'Anonymous'),
+            : (currentUser?.email ?? FeedbackScreen.defaultAnonymousEmail),
         'targetReceiverEmail': widget.receiverEmail,
-        'userId': currentUser?.uid ?? 'anonymous',
+        'userId': currentUser?.uid ?? FeedbackScreen.defaultAnonymousUid,
         'createdAt': FieldValue.serverTimestamp(),
-        'status': 'pending',
+        'status': FeedbackScreen.defaultFeedbackStatus,
       });
 
       TextInput.finishAutofillContext();
@@ -320,7 +331,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   gradient: LinearGradient(
                     colors: [
                       FeedbackScreen.darkGreen,
-                      Color(0xFF0F5229),
+                      FeedbackScreen.headerGradientMid,
                       FeedbackScreen.primaryGreen,
                     ],
                     begin: Alignment.topLeft,
@@ -412,7 +423,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                               }
                             },
                             selectedColor: FeedbackScreen.lightGreenBg,
-                            backgroundColor: const Color(0xFFF8FAFC),
+                            backgroundColor: FeedbackScreen.chipBgColor,
                             labelStyle: TextStyle(
                               color: isSelected
                                   ? FeedbackScreen.primaryGreen
@@ -470,7 +481,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                         child: TextField(
                           controller: _feedbackController,
                           maxLines: 5,
-                          maxLength: 1000,
+                          maxLength: FeedbackScreen.maxMessageLength,
                           textCapitalization: TextCapitalization.sentences,
                           textInputAction: TextInputAction.next,
                           style: const TextStyle(
@@ -481,13 +492,13 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                             hintText:
                                 'Describe what you love or how we can improve (at least 10 characters)...',
                             hintStyle: TextStyle(
-                              color: Color(0xFF94A3B8),
+                              color: FeedbackScreen.placeholderTextColor,
                               fontSize: 14,
                             ),
                             border: InputBorder.none,
                             contentPadding: EdgeInsets.all(16),
                             counterStyle: TextStyle(
-                              color: Color(0xFF94A3B8),
+                              color: FeedbackScreen.placeholderTextColor,
                               fontSize: 12,
                             ),
                           ),
@@ -497,8 +508,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       ValueListenableBuilder<int>(
                         valueListenable: _charCountNotifier,
                         builder: (context, length, _) {
-                          if (length > 0 && length < 10) {
-                            final remaining = 10 - length;
+                          if (length > 0 &&
+                              length < FeedbackScreen.minMessageLength) {
+                            final remaining =
+                                FeedbackScreen.minMessageLength - length;
                             return Padding(
                               padding: const EdgeInsets.only(
                                 top: 6.0,
@@ -553,7 +566,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                             ),
                             hintText: 'name@example.com',
                             hintStyle: TextStyle(
-                              color: Color(0xFF94A3B8),
+                              color: FeedbackScreen.placeholderTextColor,
                               fontSize: 14,
                             ),
                             border: InputBorder.none,
@@ -628,7 +641,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                                       style: TextStyle(
                                         color: canSubmit
                                             ? Colors.white
-                                            : const Color(0xFF94A3B8),
+                                            : FeedbackScreen
+                                                  .placeholderTextColor,
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -650,7 +664,3 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 }
-
-
-//finally done
-//firestore optimized

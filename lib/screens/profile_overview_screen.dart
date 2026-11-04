@@ -6,6 +6,98 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'editable_profile_screen.dart';
 
+// ==================== CONSTANTS MANAGEMENT ====================
+abstract class _ProfileFirestoreKeys {
+  static const String collectionUsers = 'users';
+  static const String fieldName = 'name';
+  static const String fieldRole = 'role';
+  static const String fieldEmail = 'email';
+  static const String fieldPhone = 'phone';
+  static const String fieldUpdatedAt = 'updatedAt';
+}
+
+abstract class _ProfileStrings {
+  static const String defaultRole = 'User';
+  static const String defaultInitial = 'U';
+  static const String noNameSet = 'No Name Set';
+  static const String roleNotSpecified = 'Role Not Specified';
+  static const String notProvided = 'Not Provided';
+
+  static const String sectionPersonalInformation = 'Personal Information';
+  static const String labelEmailAddress = 'EMAIL ADDRESS';
+  static const String labelPhoneNumber = 'PHONE NUMBER';
+  static const String buttonEditProfileDetails = 'Edit Profile Details';
+
+  static const String headerTitle = 'Account Profile';
+  static const String headerSubtitle =
+      'Personal identity details & credentials';
+  static const String semanticsBackLabel = 'Back';
+
+  static const String logFirestoreListenError =
+      'Error listening to profile in Firestore:';
+  static const String logFirestoreUpdateError =
+      'Failed to update profile in Firestore:';
+}
+
+abstract class _ProfileColors {
+  static const Color darkGreen = Color(0xFF092508);
+  static const Color midGreen = Color(0xFF20831B);
+  static const Color borderGreen = Color(0xFF20341E);
+  static const Color lightGreenBg = Color(0xFFE8F5E9);
+  static const Color pageBg = Colors.white;
+  static const Color cardBg = Colors.white;
+  static const Color textBlack = Colors.black;
+  static const Color textWhite = Colors.white;
+  static const Color textWhite70 = Colors.white70;
+  static const Color iconGreen = Color(0xFF20831B);
+
+  static final Color textSubtleGrey = Colors.grey.shade600;
+  static const Color labelGrey = Colors.grey;
+  static final Color shadowColor = Colors.grey.withValues(alpha: 0.2);
+  static final Color dividerColor = Colors.grey.withValues(alpha: 0.2);
+  static final Color iconBgColor = lightGreenBg.withValues(alpha: 0.6);
+}
+
+abstract class _ProfileDimensions {
+  static const double paddingSmall = 4.0;
+  static const double paddingMedium = 8.0;
+  static const double paddingStandard = 16.0;
+  static const double paddingLarge = 20.0;
+  static const double paddingExtraLarge = 25.0;
+  static const double spacingTiny = 2.0;
+  static const double spacingMedium = 16.0;
+  static const double spacingLarge = 18.0;
+  static const double spacingXLarge = 24.0;
+  static const double spacingXXLarge = 32.0;
+
+  static const double buttonHeight = 50.0;
+  static const double backButtonSize = 36.0;
+  static const double backButtonIconSize = 18.0;
+  static const double leadingIconSize = 20.0;
+  static const double avatarRadius = 28.0;
+
+  static const double borderRadiusMedium = 10.0;
+  static const double borderRadiusLarge = 12.0;
+  static const double borderRadiusHeader = 20.0;
+  static const double borderWidthThin = 1.5;
+  static const double shadowSpreadRadius = 2.0;
+  static const double shadowBlurRadius = 3.0;
+  static const Offset shadowOffset = Offset(0, 2);
+
+  static const double fontSizeLabel = 10.0;
+  static const double fontSizeSub = 11.0;
+  static const double fontSizeRole = 12.0;
+  static const double fontSizeValue = 14.0;
+  static const double fontSizeButton = 15.0;
+  static const double fontSizeAvatarText = 18.0;
+  static const double fontSizeName = 18.0;
+  static const double fontSizeSectionHeader = 20.0;
+  static const double fontSizePageTitle = 32.0;
+  static const double letterSpacingLabel = 0.5;
+  static const double gradientStopTop = 0.38;
+  static const double gradientStopBottom = 1.0;
+}
+
 // --- DATA MODEL WITH FIREBASE REAL-TIME SYNC ---
 class ProfileData extends ChangeNotifier {
   String name = '';
@@ -38,27 +130,31 @@ class ProfileData extends ChangeNotifier {
       final uid = user.uid;
 
       _subscription = FirebaseFirestore.instance
-          .collection('users')
+          .collection(_ProfileFirestoreKeys.collectionUsers)
           .doc(uid)
           .snapshots(includeMetadataChanges: false)
           .listen(
             (doc) {
               if (doc.exists && doc.data() != null) {
                 final data = doc.data()!;
-                name = data['name'] ?? '';
-                role = data['role'] ?? 'User';
-                email = data['email'] ?? (user.email ?? '');
-                phone = data['phone'] ?? '';
+                name = data[_ProfileFirestoreKeys.fieldName] ?? '';
+                role =
+                    data[_ProfileFirestoreKeys.fieldRole] ??
+                    _ProfileStrings.defaultRole;
+                email =
+                    data[_ProfileFirestoreKeys.fieldEmail] ??
+                    (user.email ?? '');
+                phone = data[_ProfileFirestoreKeys.fieldPhone] ?? '';
               } else {
                 // Fallback for newly registered accounts whose profile doc isn't created yet
                 email = user.email ?? '';
-                role = 'User';
+                role = _ProfileStrings.defaultRole;
               }
               isLoading = false;
               notifyListeners();
             },
             onError: (error) {
-              debugPrint('Error listening to profile in Firestore: $error');
+              debugPrint('${_ProfileStrings.logFirestoreListenError} $error');
               isLoading = false;
               notifyListeners();
             },
@@ -72,7 +168,11 @@ class ProfileData extends ChangeNotifier {
     String newPhone,
   ) async {
     final currentUser = FirebaseAuth.instance.currentUser;
-    final uid = currentUser?.uid ?? 'profile';
+    if (currentUser == null) {
+      return false;
+    }
+
+    final uid = currentUser.uid;
 
     // Store previous values for rollback if Firestore or Auth sync fails
     final oldName = name;
@@ -87,24 +187,27 @@ class ProfileData extends ChangeNotifier {
 
     try {
       // Sync email with Firebase Auth credential if email changed
-      if (currentUser != null &&
-          newEmail.isNotEmpty &&
-          newEmail.trim() != currentUser.email) {
+      if (newEmail.isNotEmpty && newEmail.trim() != currentUser.email) {
         await currentUser.verifyBeforeUpdateEmail(newEmail.trim());
       }
 
       // Save changes back to Firebase Firestore
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
-        'name': newName,
-        'email': newEmail,
-        'phone': newPhone,
-        'role': role.isEmpty ? 'User' : role,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await FirebaseFirestore.instance
+          .collection(_ProfileFirestoreKeys.collectionUsers)
+          .doc(uid)
+          .set({
+            _ProfileFirestoreKeys.fieldName: newName,
+            _ProfileFirestoreKeys.fieldEmail: newEmail,
+            _ProfileFirestoreKeys.fieldPhone: newPhone,
+            _ProfileFirestoreKeys.fieldRole: role.isEmpty
+                ? _ProfileStrings.defaultRole
+                : role,
+            _ProfileFirestoreKeys.fieldUpdatedAt: FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
       return true;
     } catch (e) {
-      debugPrint('Failed to update profile in Firestore: $e');
+      debugPrint('${_ProfileStrings.logFirestoreUpdateError} $e');
 
       // Rollback local state on error
       name = oldName;
@@ -144,86 +247,92 @@ class ProfileOverviewScreen extends StatelessWidget {
 
   const ProfileOverviewScreen({super.key, this.profile, this.onEditPressed});
 
-  static const Color darkGreen = Color(0xFF092508);
-  static const Color midGreen = Color(0xFF20831B);
-  static const Color borderGreen = Color(0xFF20341E);
-  static const Color lightGreenBg = Color(0xFFE8F5E9);
-  static const Color pageBg = Colors.white;
-
   @override
   Widget build(BuildContext context) {
-    // Safely acquire ProfileData without creating ephemeral unmanaged instances in build()
     final profileData = profile ?? context.watch<ProfileData>();
 
     if (profileData.isLoading) {
       return const Scaffold(
-        backgroundColor: pageBg,
-        body: Center(child: CircularProgressIndicator(color: midGreen)),
+        backgroundColor: _ProfileColors.pageBg,
+        body: Center(
+          child: CircularProgressIndicator(color: _ProfileColors.midGreen),
+        ),
       );
     }
 
     return Scaffold(
-      backgroundColor: pageBg,
+      backgroundColor: _ProfileColors.pageBg,
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
           _buildTopHeader(context),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: _ProfileDimensions.paddingStandard,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 16),
+                const SizedBox(height: _ProfileDimensions.spacingMedium),
 
                 // USER SUMMARY CARD
                 _buildFloatingCard(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(20.0),
+                      padding: const EdgeInsets.all(
+                        _ProfileDimensions.paddingLarge,
+                      ),
                       child: Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(4),
+                            padding: const EdgeInsets.all(
+                              _ProfileDimensions.paddingSmall,
+                            ),
                             decoration: const BoxDecoration(
-                              color: lightGreenBg,
+                              color: _ProfileColors.lightGreenBg,
                               shape: BoxShape.circle,
                             ),
                             child: CircleAvatar(
-                              radius: 28,
-                              backgroundColor: darkGreen,
+                              radius: _ProfileDimensions.avatarRadius,
+                              backgroundColor: _ProfileColors.darkGreen,
                               child: Text(
                                 _getInitials(profileData.name),
                                 style: const TextStyle(
-                                  fontSize: 18,
+                                  fontSize:
+                                      _ProfileDimensions.fontSizeAvatarText,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: _ProfileColors.textWhite,
                                 ),
                               ),
                             ),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(
+                            width: _ProfileDimensions.spacingMedium,
+                          ),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   profileData.name.isEmpty
-                                      ? 'No Name Set'
+                                      ? _ProfileStrings.noNameSet
                                       : profileData.name,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                    color: Colors.black,
+                                    fontSize: _ProfileDimensions.fontSizeName,
+                                    color: _ProfileColors.textBlack,
                                   ),
                                 ),
-                                const SizedBox(height: 2),
+                                const SizedBox(
+                                  height: _ProfileDimensions.spacingTiny,
+                                ),
                                 Text(
                                   profileData.role.isEmpty
-                                      ? 'Role Not Specified'
+                                      ? _ProfileStrings.roleNotSpecified
                                       : profileData.role,
                                   style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
+                                    fontSize: _ProfileDimensions.fontSizeRole,
+                                    color: _ProfileColors.textSubtleGrey,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -236,35 +345,35 @@ class ProfileOverviewScreen extends StatelessWidget {
                   ],
                 ),
 
-                _buildSectionHeader('Personal Information'),
+                _buildSectionHeader(_ProfileStrings.sectionPersonalInformation),
 
                 // DETAILED INFO CARD
                 _buildFloatingCard(
                   children: [
                     _buildInfoListTile(
                       icon: CupertinoIcons.mail_solid,
-                      label: 'EMAIL ADDRESS',
+                      label: _ProfileStrings.labelEmailAddress,
                       value: profileData.email.isEmpty
-                          ? 'Not Provided'
+                          ? _ProfileStrings.notProvided
                           : profileData.email,
                     ),
                     _buildDivider(),
                     _buildInfoListTile(
                       icon: CupertinoIcons.phone_fill,
-                      label: 'PHONE NUMBER',
+                      label: _ProfileStrings.labelPhoneNumber,
                       value: profileData.phone.isEmpty
-                          ? 'Not Provided'
+                          ? _ProfileStrings.notProvided
                           : profileData.phone,
                     ),
                   ],
                 ),
 
-                const SizedBox(height: 24),
+                const SizedBox(height: _ProfileDimensions.spacingXLarge),
 
                 // ACTION BUTTON
                 SizedBox(
                   width: double.infinity,
-                  height: 50,
+                  height: _ProfileDimensions.buttonHeight,
                   child: ElevatedButton(
                     onPressed:
                         onEditPressed ??
@@ -278,23 +387,25 @@ class ProfileOverviewScreen extends StatelessWidget {
                           );
                         },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: darkGreen,
-                      foregroundColor: Colors.white,
+                      backgroundColor: _ProfileColors.darkGreen,
+                      foregroundColor: _ProfileColors.textWhite,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(
+                          _ProfileDimensions.borderRadiusLarge,
+                        ),
                       ),
                     ),
                     child: const Text(
-                      'Edit Profile Details',
+                      _ProfileStrings.buttonEditProfileDetails,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                        fontSize: _ProfileDimensions.fontSizeButton,
                       ),
                     ),
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: _ProfileDimensions.spacingXXLarge),
               ],
             ),
           ),
@@ -304,7 +415,7 @@ class ProfileOverviewScreen extends StatelessWidget {
   }
 
   String _getInitials(String name) {
-    if (name.trim().isEmpty) return 'U';
+    if (name.trim().isEmpty) return _ProfileStrings.defaultInitial;
     final parts = name
         .trim()
         .split(RegExp(r'\s+'))
@@ -315,29 +426,32 @@ class ProfileOverviewScreen extends StatelessWidget {
     } else if (parts.isNotEmpty) {
       return parts[0][0].toUpperCase();
     }
-    return 'U';
+    return _ProfileStrings.defaultInitial;
   }
 
   Widget _buildTopHeader(BuildContext context) {
     final topPadding = MediaQuery.paddingOf(context).top;
     return Container(
       padding: EdgeInsets.only(
-        top: topPadding + 16,
-        left: 16,
-        right: 16,
-        bottom: 25,
+        top: topPadding + _ProfileDimensions.paddingStandard,
+        left: _ProfileDimensions.paddingStandard,
+        right: _ProfileDimensions.paddingStandard,
+        bottom: _ProfileDimensions.paddingExtraLarge,
       ),
       decoration: const BoxDecoration(
-        color: darkGreen,
+        color: _ProfileColors.darkGreen,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(20),
-          bottomRight: Radius.circular(20),
+          bottomLeft: Radius.circular(_ProfileDimensions.borderRadiusHeader),
+          bottomRight: Radius.circular(_ProfileDimensions.borderRadiusHeader),
         ),
         gradient: LinearGradient(
-          colors: [darkGreen, midGreen],
+          colors: [_ProfileColors.darkGreen, _ProfileColors.midGreen],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0.38, 1],
+          stops: [
+            _ProfileDimensions.gradientStopTop,
+            _ProfileDimensions.gradientStopBottom,
+          ],
         ),
       ),
       child: Column(
@@ -347,41 +461,47 @@ class ProfileOverviewScreen extends StatelessWidget {
             children: [
               Semantics(
                 button: true,
-                label: 'Back',
+                label: _ProfileStrings.semanticsBackLabel,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => Navigator.maybePop(context),
                   child: Container(
-                    height: 36,
-                    width: 36,
+                    height: _ProfileDimensions.backButtonSize,
+                    width: _ProfileDimensions.backButtonSize,
                     decoration: BoxDecoration(
                       color: Colors.transparent,
                       shape: BoxShape.circle,
-                      border: Border.all(color: borderGreen, width: 1.5),
+                      border: Border.all(
+                        color: _ProfileColors.borderGreen,
+                        width: _ProfileDimensions.borderWidthThin,
+                      ),
                     ),
                     alignment: Alignment.center,
                     child: const Icon(
                       CupertinoIcons.chevron_left,
-                      size: 18,
-                      color: Colors.white,
+                      size: _ProfileDimensions.backButtonIconSize,
+                      color: _ProfileColors.textWhite,
                     ),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: _ProfileDimensions.spacingLarge),
           const Text(
-            'Account Profile',
+            _ProfileStrings.headerTitle,
             style: TextStyle(
-              fontSize: 32,
+              fontSize: _ProfileDimensions.fontSizePageTitle,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: _ProfileColors.textWhite,
             ),
           ),
           const Text(
-            'Personal identity details & credentials',
-            style: TextStyle(fontSize: 11, color: Colors.white70),
+            _ProfileStrings.headerSubtitle,
+            style: TextStyle(
+              fontSize: _ProfileDimensions.fontSizeSub,
+              color: _ProfileColors.textWhite70,
+            ),
           ),
         ],
       ),
@@ -390,10 +510,17 @@ class ProfileOverviewScreen extends StatelessWidget {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4, top: 18, bottom: 8),
+      padding: const EdgeInsets.only(
+        left: _ProfileDimensions.paddingSmall,
+        top: _ProfileDimensions.spacingLarge,
+        bottom: _ProfileDimensions.paddingMedium,
+      ),
       child: Text(
         title,
-        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontSize: _ProfileDimensions.fontSizeSectionHeader,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -404,30 +531,39 @@ class ProfileOverviewScreen extends StatelessWidget {
     required String value,
   }) {
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: _ProfileDimensions.paddingStandard,
+        vertical: _ProfileDimensions.paddingSmall,
+      ),
       leading: Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(_ProfileDimensions.paddingMedium),
         decoration: BoxDecoration(
-          color: lightGreenBg.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(10),
+          color: _ProfileColors.iconBgColor,
+          borderRadius: BorderRadius.circular(
+            _ProfileDimensions.borderRadiusMedium,
+          ),
         ),
-        child: Icon(icon, color: midGreen, size: 20),
+        child: Icon(
+          icon,
+          color: _ProfileColors.iconGreen,
+          size: _ProfileDimensions.leadingIconSize,
+        ),
       ),
       title: Text(
         label,
         style: const TextStyle(
-          fontSize: 10,
+          fontSize: _ProfileDimensions.fontSizeLabel,
           fontWeight: FontWeight.bold,
-          color: Colors.grey,
-          letterSpacing: 0.5,
+          color: _ProfileColors.labelGrey,
+          letterSpacing: _ProfileDimensions.letterSpacingLabel,
         ),
       ),
       subtitle: Text(
         value,
         style: const TextStyle(
-          fontSize: 14,
+          fontSize: _ProfileDimensions.fontSizeValue,
           fontWeight: FontWeight.bold,
-          color: darkGreen,
+          color: _ProfileColors.darkGreen,
         ),
       ),
     );
@@ -436,14 +572,16 @@ class ProfileOverviewScreen extends StatelessWidget {
   Widget _buildFloatingCard({required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: _ProfileColors.cardBg,
+        borderRadius: BorderRadius.circular(
+          _ProfileDimensions.borderRadiusLarge,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.2),
-            spreadRadius: 2,
-            blurRadius: 3,
-            offset: const Offset(0, 2),
+            color: _ProfileColors.shadowColor,
+            spreadRadius: _ProfileDimensions.shadowSpreadRadius,
+            blurRadius: _ProfileDimensions.shadowBlurRadius,
+            offset: _ProfileDimensions.shadowOffset,
           ),
         ],
       ),
@@ -454,9 +592,9 @@ class ProfileOverviewScreen extends StatelessWidget {
   Widget _buildDivider() {
     return Divider(
       height: 1,
-      indent: 16,
-      endIndent: 16,
-      color: Colors.grey.withValues(alpha: 0.2),
+      indent: _ProfileDimensions.paddingStandard,
+      endIndent: _ProfileDimensions.paddingStandard,
+      color: _ProfileColors.dividerColor,
     );
   }
 }

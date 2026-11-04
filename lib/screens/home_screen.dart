@@ -12,6 +12,180 @@ import 'initial_setup_screen.dart';
 import 'groups_screen.dart';
 import 'settings_screen.dart';
 
+/// Type definitions to prevent generic angle-bracket stripping issues
+typedef SystemDocumentSnapshot = DocumentSnapshot<Map<String, dynamic>>;
+typedef SystemJsonMap = Map<String, dynamic>;
+
+/// Centralized UI Colors
+abstract class _AppColors {
+  static const Color darkGreen = Color(0xFF092508);
+  static const Color midGreen = Color(0xFF20831B);
+  static const Color borderGreen = Color(0xFF20341E);
+  static const Color backgroundWhite = Colors.white;
+  static const Color cardShadow = Colors.grey;
+  static const Color textBlack = Colors.black;
+  static const Color textBlack87 = Colors.black87;
+  static const Color textGrey = Colors.grey;
+  static final Color textGrey500 = Colors.grey.shade500;
+  static const Color textSubtleGrey = Color(0xFF6B7280);
+  static const Color textDarkGrey = Color(0xFF374151);
+  static const Color textPrimaryDark = Color(0xFF111827);
+  static const Color drawerBgGrey = Color(0xFFF3F4F6);
+  static const Color drawerBorderGrey = Color(0xFFE5E7EB);
+  static const Color activeIndicatorGreen = Color(0xFF22C55E);
+  static const Color destructiveRed = Color(0xFFDC2626);
+  static const Color boltYellow = Colors.yellow;
+  static const Color iconWhite = Colors.white;
+}
+
+/// Centralized Text & Asset Paths
+abstract class _AppStrings {
+  static const String timeRangeToday = 'Today';
+  static const String timeRangeThisWeek = 'This Week';
+  static const String timeRangeThisMonth = 'This Month';
+  static const String timeRangeThisYear = 'This Year';
+  static const String filterViewAll = 'View All';
+
+  static const String peakOutputLabel = 'Peak Output';
+  static const String estimatedSavingsLabel = 'Estimated Savings';
+  static const String unitKwhLower = 'kW/h';
+  static const String unitKwhUpper = 'KW/H';
+  static const String currencySymbol = '₱';
+  static const String monitoringTitle = 'Monitoring';
+  static const String sortByLabel = 'sort by ';
+  static const String totalGeneratedLabel = 'Total Generated';
+  static const String individualValueLabel = 'Individual Value';
+
+  static const String noPanelsRegistered =
+      'No solar panels registered for your account.';
+  static const String noGroupsAvailable = 'No groups available.';
+  static const String noPanelsFoundInGroup = 'No panels found in this group.';
+  static const String noPanelsInThisGroup = 'No panels in this group.';
+  static const String unnamedGroup = 'Unnamed Group';
+  static const String unnamedPanel = 'Unnamed Panel';
+
+  static const String menuHeader = 'Menu';
+  static const String sectionDashboards = 'DASHBOARDS';
+  static const String menuOverview = 'Overview';
+  static const String menuMetrics = 'Metrics';
+  static const String sectionSetup = 'SETUP';
+  static const String menuAddSetup = 'Add a Setup';
+  static const String menuSites = 'Sites';
+  static const String sectionSettingsAccount = 'SETTINGS AND ACCOUNT';
+  static const String menuSettings = 'Settings';
+  static const String menuLogOut = 'Log Out';
+  static const String appVersion = 'v1.0.2 • Solar Monitoring';
+
+  static const String houseDashAsset = 'assets/images/house_top_dash.png';
+}
+
+/// Centralized Layout Dimensions & Magic Numbers
+abstract class _AppDimensions {
+  static const double dashboardHeight = 230.0;
+  static const double metricCardHeight = 120.0;
+  static const double panelMetricCardHeight = 100.0;
+  static const double appBarHeight = 70.0;
+  static const double appBarButtonSize = 40.0;
+  static const double drawerHeaderIconSize = 42.0;
+
+  static const double cardWidthFactorMetric = 0.46;
+  static const double cardWidthFactorPanel = 0.93;
+
+  static const double fontExtraLarge = 36.0;
+  static const double fontHeaderLarge = 35.0;
+  static const double fontValueLarge = 30.0;
+  static const double fontTitleLarge = 21.0;
+  static const double fontSectionTitle = 20.0;
+  static const double fontHeaderMedium = 18.0;
+  static const double fontDrawerMenu = 16.0;
+  static const double fontCardTitle = 15.0;
+  static const double fontBodyMedium = 13.0;
+  static const double fontSubtitle = 12.0;
+  static const double fontBodySmall = 11.0;
+  static const double fontSectionHeader = 10.0;
+  static const double fontCaption = 9.0;
+
+  static const double iconSizeExtraLarge = 27.0;
+  static const double iconSizeLarge = 24.0;
+  static const double iconSizeMediumLarge = 23.0;
+  static const double iconSizeMedium = 22.0;
+  static const double iconSizeStandard = 20.0;
+  static const double iconSizeDrawer = 18.0;
+  static const double iconSizeSmall = 14.0;
+  static const double iconSizeExtraSmall = 13.0;
+
+  static const double radiusDashboard = 20.0;
+  static const double radiusDropdown = 20.0;
+  static const double radiusDropdownMenu = 16.0;
+  static const double radiusDropdownFilter = 12.0;
+  static const double radiusCard = 10.0;
+  static const double radiusBadge = 6.0;
+  static const double radiusIndicatorDot = 6.0;
+
+  static const double spacingExtraLarge = 32.0;
+  static const double spacingLarge = 24.0;
+  static const double spacingMedium = 16.0;
+  static const double spacingStandard = 15.0;
+  static const double spacingSmall = 10.0;
+  static const double spacingTiny = 8.0;
+  static const double spacingMicro = 4.0;
+
+  static const double borderWidthStandard = 1.5;
+  static const double borderWidthThick = 2.5;
+
+  static const double shadowAlphaCard = 0.2;
+  static const double shadowAlphaBadge = 0.25;
+  static const double shadowAlphaIconBg = 0.1;
+}
+
+/// Centralized Firestore Collection Names & Field Constants
+abstract class _AppFirestore {
+  static const String collectionSystemStatus = 'system_status';
+  static const String docCurrent = 'current';
+
+  static const String collectionUsers = 'users';
+  static const String collectionAnalytics = 'analytics';
+  static const String collectionDaily = 'daily';
+  static const String collectionWeekly = 'weekly';
+  static const String collectionAnnually = 'annually';
+
+  static const String fallbackSystemDoc = 'solar_system_01';
+  static const String userDocPrefix = 'user_';
+
+  static const String fieldPairedDevices = 'pairedDevices';
+  static const String fieldTotalKwh = 'totalKwh';
+  static const String fieldBars = 'bars';
+  static const String fieldRawKwh = 'raw_kwh';
+  static const String fieldVal = 'val';
+
+  static const String fieldBattery = 'battery';
+  static const String fieldBatterySoc = 'battery_soc';
+  static const String fieldSoc = 'soc';
+  static const String fieldTotalKwhToday = 'total_kwh_today';
+  static const String fieldTotalGeneratedKwh = 'total_generated_kwh';
+  static const String fieldPeakOutputKw = 'peak_output_kw';
+  static const String fieldPeakPower = 'peak_power';
+  static const String fieldEstimatedSavingsPhp = 'estimated_savings_php';
+  static const String fieldEstimatedSavings = 'estimated_savings';
+  static const String fieldSavingsPhp = 'savings_php';
+
+  static const String fieldGroups = 'groups';
+  static const String fieldPanels = 'panels';
+  static const String fieldOwnerUid = 'owner_uid';
+  static const String fieldOwnerUidCamel = 'ownerUid';
+  static const String fieldGroupName = 'group_name';
+  static const String fieldName = 'name';
+  static const String fieldGroupOrder = 'group_order';
+  static const String fieldOrder = 'order';
+  static const String fieldPanelOrder = 'panel_order';
+  static const String fieldGroup = 'group';
+  static const String fieldSensorData = 'sensor_data';
+  static const String fieldOutputPowerW = 'output_power_w';
+  static const String fieldPowerKwh = 'power_kwh';
+  static const String fieldPowerW = 'power_w';
+  static const String fieldPower = 'power';
+}
+
 class HomeScreen extends StatefulWidget {
   final int currentPercentage;
   final int cardCount;
@@ -30,22 +204,25 @@ class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   // Dropdown States
-  String selectedTimeRange = 'This Week';
-  String selectedFilter = 'View All';
+  String selectedTimeRange = _AppStrings.timeRangeThisWeek;
+  String selectedFilter = _AppStrings.filterViewAll;
 
   final List<String> timeRanges = [
-    'Today',
-    'This Week',
-    'This Month',
-    'This Year',
+    _AppStrings.timeRangeToday,
+    _AppStrings.timeRangeThisWeek,
+    _AppStrings.timeRangeThisMonth,
+    _AppStrings.timeRangeThisYear,
   ];
 
   // Cached Telemetry Stream Instance (system_status/current document)
-  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _telemetryStream;
+  late final Stream<SystemDocumentSnapshot> _telemetryStream;
 
   // Active subscription for aggregated time-range totals
-  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
-  _analyticsSubscription;
+  StreamSubscription<SystemDocumentSnapshot>? _analyticsSubscription;
+
+  // Active subscription for user profile pairedDevices
+  StreamSubscription<SystemDocumentSnapshot>? _userSubscription;
+  List<String> _userPairedDevices = [];
 
   // Real-time listener state for pre-aggregated time-range totals
   double _aggregatedTotalKwh = 0.0;
@@ -53,34 +230,58 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Optimization: Initialize stream once with strict type mapping & disable metadata-only rebuilds
     _telemetryStream = FirebaseFirestore.instance
-        .collection('system_status')
-        .doc('current')
+        .collection(_AppFirestore.collectionSystemStatus)
+        .doc(_AppFirestore.docCurrent)
         .snapshots(includeMetadataChanges: false);
 
+    _listenToUserDoc();
     _listenToAggregatedTotals();
   }
 
   @override
   void dispose() {
     _analyticsSubscription?.cancel();
+    _userSubscription?.cancel();
     super.dispose();
   }
 
-  /// Listens to pre-aggregated Firestore analytics collection according to selected time range
+  /// Real-time listener for current user's document to get paired device IDs
+  void _listenToUserDoc() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _userSubscription = FirebaseFirestore.instance
+        .collection(_AppFirestore.collectionUsers)
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) {
+          if (doc.exists && mounted) {
+            final data = doc.data() ?? {};
+            final List<dynamic> paired =
+                data[_AppFirestore.fieldPairedDevices] as List<dynamic>? ?? [];
+            setState(() {
+              _userPairedDevices = paired.map((e) => e.toString()).toList();
+            });
+          }
+        });
+  }
+
+  /// Listens to pre-aggregated Firestore analytics collection for current user
   void _listenToAggregatedTotals() {
-    // Cancel any existing active listener to prevent memory & Firestore subscription leaks
     _analyticsSubscription?.cancel();
+
+    final user = FirebaseAuth.instance.currentUser;
+    final String docId = (user != null && user.uid.isNotEmpty)
+        ? '${_AppFirestore.userDocPrefix}${user.uid}'
+        : _AppFirestore.fallbackSystemDoc;
 
     final DateTime now = DateTime.now();
     final String dateStr =
         "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
-    // Sunday-based week identifier matching server.py
     final daysSinceSun = (now.weekday % 7);
     final sunDate = now.subtract(Duration(days: daysSinceSun));
-    // Calculate week number in year
     final dayOfYear = int.parse(
       now.difference(DateTime(now.year, 1, 1)).inDays.toString(),
     );
@@ -91,104 +292,120 @@ class _HomeScreenState extends State<HomeScreen> {
     final weekStr = "${sunDate.year}-W$wNum";
     final yearStr = "${now.year}";
 
-    if (selectedTimeRange == 'Today') {
-      _analyticsSubscription = FirebaseFirestore.instance
-          .collection('analytics')
-          .doc('solar_system_01')
-          .collection('daily')
-          .doc(dateStr)
-          .snapshots()
-          .listen((doc) {
-            if (doc.exists && mounted) {
-              setState(() {
-                _aggregatedTotalKwh =
-                    (doc.data()?['totalKwh'] as num?)?.toDouble() ?? 0.0;
-              });
-            }
-          });
-    } else if (selectedTimeRange == 'This Week') {
-      _analyticsSubscription = FirebaseFirestore.instance
-          .collection('analytics')
-          .doc('solar_system_01')
-          .collection('weekly')
-          .doc(weekStr)
-          .snapshots()
-          .listen((doc) {
-            if (doc.exists && mounted) {
-              setState(() {
-                _aggregatedTotalKwh =
-                    (doc.data()?['totalKwh'] as num?)?.toDouble() ?? 0.0;
-              });
-            }
-          });
-    } else if (selectedTimeRange == 'This Month' ||
-        selectedTimeRange == 'This Year') {
-      _analyticsSubscription = FirebaseFirestore.instance
-          .collection('analytics')
-          .doc('solar_system_01')
-          .collection('annually')
-          .doc(yearStr)
-          .snapshots()
-          .listen((doc) {
-            if (doc.exists && mounted) {
-              final data = doc.data() ?? {};
-              if (selectedTimeRange == 'This Year') {
+    void attachListener(String targetDoc) {
+      if (selectedTimeRange == _AppStrings.timeRangeToday) {
+        _analyticsSubscription = FirebaseFirestore.instance
+            .collection(_AppFirestore.collectionAnalytics)
+            .doc(targetDoc)
+            .collection(_AppFirestore.collectionDaily)
+            .doc(dateStr)
+            .snapshots()
+            .listen((doc) {
+              if (doc.exists && mounted) {
                 setState(() {
                   _aggregatedTotalKwh =
-                      (data['totalKwh'] as num?)?.toDouble() ?? 0.0;
-                });
-              } else {
-                // Calculate sum for current month from pre-aggregated bars map
-                final monthNames = [
-                  'Jan',
-                  'Feb',
-                  'Mar',
-                  'Apr',
-                  'May',
-                  'Jun',
-                  'Jul',
-                  'Aug',
-                  'Sep',
-                  'Oct',
-                  'Nov',
-                  'Dec',
-                ];
-                final currentMonthLabel = monthNames[now.month - 1];
-                final bars = data['bars'] as Map<String, dynamic>? ?? {};
-                final monthVal = bars[currentMonthLabel];
-
-                double mKwh = 0.0;
-                if (monthVal is Map) {
-                  mKwh =
-                      (monthVal['raw_kwh'] as num?)?.toDouble() ??
-                      (monthVal['val'] as num?)?.toDouble() ??
+                      (doc.data()?[_AppFirestore.fieldTotalKwh] as num?)
+                          ?.toDouble() ??
                       0.0;
-                } else if (monthVal is num) {
-                  mKwh = monthVal.toDouble();
-                }
-
-                setState(() {
-                  _aggregatedTotalKwh = mKwh;
                 });
+              } else if (targetDoc != _AppFirestore.fallbackSystemDoc) {
+                attachListener(_AppFirestore.fallbackSystemDoc);
               }
-            }
-          });
+            });
+      } else if (selectedTimeRange == _AppStrings.timeRangeThisWeek) {
+        _analyticsSubscription = FirebaseFirestore.instance
+            .collection(_AppFirestore.collectionAnalytics)
+            .doc(targetDoc)
+            .collection(_AppFirestore.collectionWeekly)
+            .doc(weekStr)
+            .snapshots()
+            .listen((doc) {
+              if (doc.exists && mounted) {
+                setState(() {
+                  _aggregatedTotalKwh =
+                      (doc.data()?[_AppFirestore.fieldTotalKwh] as num?)
+                          ?.toDouble() ??
+                      0.0;
+                });
+              } else if (targetDoc != _AppFirestore.fallbackSystemDoc) {
+                attachListener(_AppFirestore.fallbackSystemDoc);
+              }
+            });
+      } else if (selectedTimeRange == _AppStrings.timeRangeThisMonth ||
+          selectedTimeRange == _AppStrings.timeRangeThisYear) {
+        _analyticsSubscription = FirebaseFirestore.instance
+            .collection(_AppFirestore.collectionAnalytics)
+            .doc(targetDoc)
+            .collection(_AppFirestore.collectionAnnually)
+            .doc(yearStr)
+            .snapshots()
+            .listen((doc) {
+              if (doc.exists && mounted) {
+                final data = doc.data() ?? {};
+                if (selectedTimeRange == _AppStrings.timeRangeThisYear) {
+                  setState(() {
+                    _aggregatedTotalKwh =
+                        (data[_AppFirestore.fieldTotalKwh] as num?)
+                            ?.toDouble() ??
+                        0.0;
+                  });
+                } else {
+                  final monthNames = [
+                    'Jan',
+                    'Feb',
+                    'Mar',
+                    'Apr',
+                    'May',
+                    'Jun',
+                    'Jul',
+                    'Aug',
+                    'Sep',
+                    'Oct',
+                    'Nov',
+                    'Dec',
+                  ];
+                  final currentMonthLabel = monthNames[now.month - 1];
+                  final bars =
+                      data[_AppFirestore.fieldBars] as Map<String, dynamic>? ??
+                      {};
+                  final monthVal = bars[currentMonthLabel];
+
+                  double mKwh = 0.0;
+                  if (monthVal is Map) {
+                    mKwh =
+                        (monthVal[_AppFirestore.fieldRawKwh] as num?)
+                            ?.toDouble() ??
+                        (monthVal[_AppFirestore.fieldVal] as num?)
+                            ?.toDouble() ??
+                        0.0;
+                  } else if (monthVal is num) {
+                    mKwh = monthVal.toDouble();
+                  }
+
+                  setState(() {
+                    _aggregatedTotalKwh = mKwh;
+                  });
+                }
+              } else if (targetDoc != _AppFirestore.fallbackSystemDoc) {
+                attachListener(_AppFirestore.fallbackSystemDoc);
+              }
+            });
+      }
     }
+
+    attachListener(docId);
   }
 
   Future<void> _handleLogout() async {
-    // Close side drawer first
     if ((_scaffoldKey.currentState?.isDrawerOpen ?? false) &&
         Navigator.canPop(context)) {
       Navigator.pop(context);
     }
 
-    // Sign out from Firebase Auth
     await FirebaseAuth.instance.signOut();
 
     if (!mounted) return;
 
-    // Remove all previous screens from stack
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (context) => const SlickLoginScreen()),
       (route) => false,
@@ -202,8 +419,8 @@ class _HomeScreenState extends State<HomeScreen> {
       drawer: _buildSideMenu(context),
       appBar: _buildAppBar(),
       body: Container(
-        color: Colors.white,
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        color: _AppColors.backgroundWhite,
+        child: StreamBuilder<SystemDocumentSnapshot>(
           stream: _telemetryStream,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
@@ -211,71 +428,105 @@ class _HomeScreenState extends State<HomeScreen> {
               return const Center(child: CircularProgressIndicator.adaptive());
             }
 
-            final Map<String, dynamic> telemetryData =
+            final SystemJsonMap telemetryData =
                 (snapshot.hasData && snapshot.data!.data() != null)
-                ? snapshot.data!.data()!
-                : {};
+                ? snapshot.data!.data()! as SystemJsonMap
+                : {} as SystemJsonMap;
 
-            // 1. Extract Battery SOC (Handles nested 'battery' map from server.py)
-            final Map<String, dynamic>? batteryMap =
-                telemetryData['battery'] as Map<String, dynamic>?;
+            final SystemJsonMap? batteryMap =
+                telemetryData[_AppFirestore.fieldBattery] as SystemJsonMap?;
             final double soc =
-                (batteryMap?['battery_soc'] ??
-                        batteryMap?['soc'] ??
-                        telemetryData['battery_soc'] ??
-                        telemetryData['soc'] ??
+                (batteryMap?[_AppFirestore.fieldBatterySoc] ??
+                        batteryMap?[_AppFirestore.fieldSoc] ??
+                        telemetryData[_AppFirestore.fieldBatterySoc] ??
+                        telemetryData[_AppFirestore.fieldSoc] ??
                         widget.currentPercentage)
                     .toDouble();
 
-            // 2. Fallback Total Generated kWh if aggregated doc isn't loaded yet
             final double liveTotalToday =
-                (telemetryData['total_kwh_today'] ??
-                        telemetryData['total_generated_kwh'] ??
-                        telemetryData['total_kwh'] ??
+                (telemetryData[_AppFirestore.fieldTotalKwhToday] ??
+                        telemetryData[_AppFirestore.fieldTotalGeneratedKwh] ??
                         0.0)
                     .toDouble();
 
             final double displayTotalGenerated =
-                selectedTimeRange == 'Today' && _aggregatedTotalKwh == 0.0
+                selectedTimeRange == _AppStrings.timeRangeToday &&
+                    _aggregatedTotalKwh == 0.0
                 ? liveTotalToday
                 : _aggregatedTotalKwh;
 
-            // 3. Extract Peak Output kW ('peak_output_kw' from server.py)
             final double peakOutput =
-                (telemetryData['peak_output_kw'] ??
-                        telemetryData['peak_power'] ??
+                (telemetryData[_AppFirestore.fieldPeakOutputKw] ??
+                        telemetryData[_AppFirestore.fieldPeakPower] ??
                         0.0)
                     .toDouble();
 
-            // 4. Extract Estimated Savings PHP ('estimated_savings_php' from server.py)
             final double estimatedSavings =
-                (telemetryData['estimated_savings_php'] ??
-                        telemetryData['estimated_savings'] ??
-                        telemetryData['savings_php'] ??
+                (telemetryData[_AppFirestore.fieldEstimatedSavingsPhp] ??
+                        telemetryData[_AppFirestore.fieldEstimatedSavings] ??
+                        telemetryData[_AppFirestore.fieldSavingsPhp] ??
                         0.0)
                     .toDouble();
 
-            // 5. Extract Groups Map ('groups' map from server.py)
-            final Map<String, dynamic> groupsMap =
-                telemetryData['groups'] as Map<String, dynamic>? ?? {};
+            final SystemJsonMap rawGroupsMap =
+                telemetryData[_AppFirestore.fieldGroups] as SystemJsonMap? ??
+                {};
 
-            // 6. Extract Panels Map ('panels' map from server.py)
-            final Map<String, dynamic> panelsMap =
-                telemetryData['panels'] as Map<String, dynamic>? ?? {};
+            final SystemJsonMap rawPanelsMap =
+                telemetryData[_AppFirestore.fieldPanels] as SystemJsonMap? ??
+                {};
+
+            final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+            final SystemJsonMap userPanelsMap = {};
+
+            rawPanelsMap.forEach((pId, pData) {
+              if (pData is SystemJsonMap) {
+                final String? ownerUid =
+                    pData[_AppFirestore.fieldOwnerUid] ??
+                    pData[_AppFirestore.fieldOwnerUidCamel];
+                final bool isOwner =
+                    (ownerUid != null && ownerUid == currentUid);
+                final bool isPaired = _userPairedDevices.contains(pId);
+
+                if (isOwner || isPaired || currentUid == null) {
+                  userPanelsMap[pId] = pData;
+                }
+              }
+            });
+
+            final SystemJsonMap userGroupsMap = {};
+            rawGroupsMap.forEach((gId, gData) {
+              if (gData is SystemJsonMap) {
+                final String? groupOwner =
+                    gData[_AppFirestore.fieldOwnerUid] ??
+                    gData[_AppFirestore.fieldOwnerUidCamel];
+                final String groupName =
+                    (gData[_AppFirestore.fieldGroupName] ??
+                            gData[_AppFirestore.fieldName] ??
+                            '')
+                        .toString();
+
+                final bool hasMemberPanel = userPanelsMap.values.any((p) {
+                  final pGroup = p[_AppFirestore.fieldGroup]?.toString();
+                  return pGroup == gId || pGroup == groupName;
+                });
+
+                if (groupOwner == currentUid ||
+                    hasMemberPanel ||
+                    currentUid == null) {
+                  userGroupsMap[gId] = gData;
+                }
+              }
+            });
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
-                // Top Dashboard & Metrics
                 topDashboard(soc: soc, totalGenerated: displayTotalGenerated),
-                const SizedBox(height: 10),
+                const SizedBox(height: _AppDimensions.spacingSmall),
                 _buildLiveMetricsRow(peakOutput, estimatedSavings),
-
-                // Monitoring Header with Groups Filter Dropdown
-                _buildMonitoringHeader(groupsMap),
-
-                // Dynamic Grouped Solar Panels List
-                _buildPanelsList(panelsMap, groupsMap),
+                _buildMonitoringHeader(userGroupsMap),
+                _buildPanelsList(userPanelsMap, userGroupsMap),
               ],
             );
           },
@@ -284,30 +535,38 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Live Metrics Row Component ---
   Widget _buildLiveMetricsRow(double peakOutput, double estimatedSavings) {
-    final double cardWidth = MediaQuery.of(context).size.width * 0.46;
+    final double cardWidth =
+        MediaQuery.of(context).size.width *
+        _AppDimensions.cardWidthFactorMetric;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
-        // Peak Output Card
         Container(
-          height: 120,
+          height: _AppDimensions.metricCardHeight,
           width: cardWidth,
           decoration: _cardBoxDecoration(),
           child: Column(
             children: [
               const Padding(
-                padding: EdgeInsets.only(top: 10, bottom: 10),
+                padding: EdgeInsets.only(
+                  top: _AppDimensions.spacingSmall,
+                  bottom: _AppDimensions.spacingSmall,
+                ),
                 child: Text(
-                  'Peak Output',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  _AppStrings.peakOutputLabel,
+                  style: TextStyle(
+                    fontSize: _AppDimensions.fontCardTitle,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const Spacer(),
               Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.only(
+                  bottom: _AppDimensions.spacingSmall,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -315,14 +574,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     Text(
                       peakOutput.toStringAsFixed(1),
                       style: const TextStyle(
-                        fontSize: 36,
+                        fontSize: _AppDimensions.fontExtraLarge,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: _AppDimensions.spacingMicro),
                     const Padding(
-                      padding: EdgeInsets.only(bottom: 10),
-                      child: Text('kW/h'),
+                      padding: EdgeInsets.only(
+                        bottom: _AppDimensions.spacingSmall,
+                      ),
+                      child: Text(_AppStrings.unitKwhLower),
                     ),
                   ],
                 ),
@@ -330,37 +591,45 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-
-        // Estimated Savings Card
         Container(
-          height: 120,
+          height: _AppDimensions.metricCardHeight,
           width: cardWidth,
           decoration: _cardBoxDecoration(),
           child: Column(
             children: [
               const Padding(
-                padding: EdgeInsets.only(top: 10, bottom: 10),
+                padding: EdgeInsets.only(
+                  top: _AppDimensions.spacingSmall,
+                  bottom: _AppDimensions.spacingSmall,
+                ),
                 child: Text(
-                  'Estimated Savings',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  _AppStrings.estimatedSavingsLabel,
+                  style: TextStyle(
+                    fontSize: _AppDimensions.fontCardTitle,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               const Spacer(),
               Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.only(
+                  bottom: _AppDimensions.spacingSmall,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     const Padding(
-                      padding: EdgeInsets.only(bottom: 10),
-                      child: Text('₱'),
+                      padding: EdgeInsets.only(
+                        bottom: _AppDimensions.spacingSmall,
+                      ),
+                      child: Text(_AppStrings.currencySymbol),
                     ),
                     const SizedBox(width: 3),
                     Text(
                       estimatedSavings.toStringAsFixed(0),
                       style: const TextStyle(
-                        fontSize: 36,
+                        fontSize: _AppDimensions.fontExtraLarge,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -374,24 +643,29 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Monitoring Header with Filter Dropdown ---
-  Widget _buildMonitoringHeader(Map<String, dynamic> groupsMap) {
-    List<String> dynamicFilters = ['View All'];
+  Widget _buildMonitoringHeader(SystemJsonMap groupsMap) {
+    List<String> dynamicFilters = [_AppStrings.filterViewAll];
 
     if (groupsMap.isNotEmpty) {
-      List<Map<String, dynamic>> groupList = groupsMap.values
-          .map((e) => Map<String, dynamic>.from(e as Map))
+      List<SystemJsonMap> groupList = groupsMap.values
+          .map((e) => SystemJsonMap.from(e as Map))
           .toList();
 
-      // Sort groups by group_order
       groupList.sort((a, b) {
-        final int orderA = a['group_order'] ?? a['order'] ?? 0;
-        final int orderB = b['group_order'] ?? b['order'] ?? 0;
+        final int orderA =
+            a[_AppFirestore.fieldGroupOrder] ??
+            a[_AppFirestore.fieldOrder] ??
+            0;
+        final int orderB =
+            b[_AppFirestore.fieldGroupOrder] ??
+            b[_AppFirestore.fieldOrder] ??
+            0;
         return orderA.compareTo(orderB);
       });
 
       for (var g in groupList) {
-        final groupName = g['group_name'] ?? g['name'];
+        final groupName =
+            g[_AppFirestore.fieldGroupName] ?? g[_AppFirestore.fieldName];
         if (groupName != null && groupName.toString().isNotEmpty) {
           dynamicFilters.add(groupName.toString());
         }
@@ -400,28 +674,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final String activeFilter = dynamicFilters.contains(selectedFilter)
         ? selectedFilter
-        : 'View All';
+        : _AppStrings.filterViewAll;
 
     return Padding(
-      padding: const EdgeInsets.only(left: 17, right: 15, top: 12),
+      padding: const EdgeInsets.only(
+        left: 17,
+        right: 15,
+        top: _AppDimensions.spacingSmall + 2,
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           const Text(
-            'Monitoring',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            _AppStrings.monitoringTitle,
+            style: TextStyle(
+              fontSize: _AppDimensions.fontSectionTitle,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const Spacer(),
           const Text(
-            'sort by ',
-            style: TextStyle(fontSize: 11, color: Colors.grey),
+            _AppStrings.sortByLabel,
+            style: TextStyle(
+              fontSize: _AppDimensions.fontBodySmall,
+              color: _AppColors.textGrey,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 5.0),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
                 value: activeFilter,
-                dropdownColor: Colors.white,
+                dropdownColor: _AppColors.backgroundWhite,
                 isDense: true,
                 isExpanded: false,
                 alignment: Alignment.center,
@@ -429,16 +713,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   padding: EdgeInsets.only(left: 6),
                   child: Icon(
                     CupertinoIcons.chevron_down,
-                    size: 13,
-                    color: Colors.black,
+                    size: _AppDimensions.iconSizeExtraSmall,
+                    color: _AppColors.textBlack,
                   ),
                 ),
                 style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 13,
+                  color: _AppColors.textBlack,
+                  fontSize: _AppDimensions.fontBodyMedium,
                   fontWeight: FontWeight.bold,
                 ),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(
+                  _AppDimensions.radiusDropdownFilter,
+                ),
                 onChanged: (String? newValue) {
                   if (newValue != null && newValue != selectedFilter) {
                     setState(() {
@@ -461,18 +747,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Dynamic Panels List Grouped by Sites ---
-  Widget _buildPanelsList(
-    Map<String, dynamic> panelsMap,
-    Map<String, dynamic> groupsMap,
-  ) {
+  Widget _buildPanelsList(SystemJsonMap panelsMap, SystemJsonMap groupsMap) {
     if (panelsMap.isEmpty) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32.0),
+        padding: EdgeInsets.symmetric(
+          vertical: _AppDimensions.spacingExtraLarge,
+        ),
         child: Center(
           child: Text(
-            'No solar panels registered in database.',
-            style: TextStyle(color: Colors.grey, fontSize: 13),
+            _AppStrings.noPanelsRegistered,
+            style: TextStyle(
+              color: _AppColors.textGrey,
+              fontSize: _AppDimensions.fontBodyMedium,
+            ),
           ),
         ),
       );
@@ -480,55 +767,72 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (groupsMap.isEmpty) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32.0),
+        padding: EdgeInsets.symmetric(
+          vertical: _AppDimensions.spacingExtraLarge,
+        ),
         child: Center(
           child: Text(
-            'No groups available.',
-            style: TextStyle(color: Colors.grey, fontSize: 13),
+            _AppStrings.noGroupsAvailable,
+            style: TextStyle(
+              color: _AppColors.textGrey,
+              fontSize: _AppDimensions.fontBodyMedium,
+            ),
           ),
         ),
       );
     }
 
-    // Sort all panels by order
-    List<Map<String, dynamic>> allPanelsList = panelsMap.values
-        .map((e) => Map<String, dynamic>.from(e as Map))
+    List<SystemJsonMap> allPanelsList = panelsMap.values
+        .map((e) => SystemJsonMap.from(e as Map))
         .toList();
 
     allPanelsList.sort((a, b) {
-      final int orderA = a['panel_order'] ?? a['order'] ?? 0;
-      final int orderB = b['panel_order'] ?? b['order'] ?? 0;
+      final int orderA =
+          a[_AppFirestore.fieldPanelOrder] ?? a[_AppFirestore.fieldOrder] ?? 0;
+      final int orderB =
+          b[_AppFirestore.fieldPanelOrder] ?? b[_AppFirestore.fieldOrder] ?? 0;
       return orderA.compareTo(orderB);
     });
 
-    // Extract and sort group entries
-    List<MapEntry<String, Map<String, dynamic>>> groupEntries = groupsMap
-        .entries
-        .map((e) => MapEntry(e.key, Map<String, dynamic>.from(e.value as Map)))
+    List<MapEntry<String, SystemJsonMap>> groupEntries = groupsMap.entries
+        .map((e) => MapEntry(e.key, SystemJsonMap.from(e.value as Map)))
         .toList();
 
     groupEntries.sort((a, b) {
-      final int orderA = a.value['group_order'] ?? a.value['order'] ?? 0;
-      final int orderB = b.value['group_order'] ?? b.value['order'] ?? 0;
+      final int orderA =
+          a.value[_AppFirestore.fieldGroupOrder] ??
+          a.value[_AppFirestore.fieldOrder] ??
+          0;
+      final int orderB =
+          b.value[_AppFirestore.fieldGroupOrder] ??
+          b.value[_AppFirestore.fieldOrder] ??
+          0;
       return orderA.compareTo(orderB);
     });
 
-    // Filter group entries if a specific group is chosen in dropdown
-    if (selectedFilter != 'View All') {
+    if (selectedFilter != _AppStrings.filterViewAll) {
       groupEntries = groupEntries.where((entry) {
         final String groupName =
-            (entry.value['group_name'] ?? entry.value['name'] ?? '').toString();
+            (entry.value[_AppFirestore.fieldGroupName] ??
+                    entry.value[_AppFirestore.fieldName] ??
+                    '')
+                .toString();
         return entry.key == selectedFilter || groupName == selectedFilter;
       }).toList();
     }
 
     if (groupEntries.isEmpty) {
       return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 32.0),
+        padding: EdgeInsets.symmetric(
+          vertical: _AppDimensions.spacingExtraLarge,
+        ),
         child: Center(
           child: Text(
-            'No panels found in this group.',
-            style: TextStyle(color: Colors.grey, fontSize: 13),
+            _AppStrings.noPanelsFoundInGroup,
+            style: TextStyle(
+              color: _AppColors.textGrey,
+              fontSize: _AppDimensions.fontBodyMedium,
+            ),
           ),
         ),
       );
@@ -538,16 +842,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (var groupEntry in groupEntries) {
       final String groupKey = groupEntry.key;
-      final Map<String, dynamic> groupData = groupEntry.value;
+      final SystemJsonMap groupData = groupEntry.value;
       final String groupName =
-          groupData['group_name'] ?? groupData['name'] ?? 'Unnamed Group';
+          groupData[_AppFirestore.fieldGroupName] ??
+          groupData[_AppFirestore.fieldName] ??
+          _AppStrings.unnamedGroup;
 
-      // Find panels belonging exclusively to this group
       final groupPanels = allPanelsList.where((panelData) {
         return _isPanelInGroup(panelData, groupKey, groupData);
       }).toList();
 
-      // Header for site / group (Clickable shortcut to Analytics Screen)
       children.add(
         InkWell(
           onTap: () {
@@ -568,11 +872,17 @@ class _HomeScreenState extends State<HomeScreen> {
       if (groupPanels.isEmpty) {
         children.add(
           const Padding(
-            padding: EdgeInsets.only(bottom: 16.0, top: 4.0),
+            padding: EdgeInsets.only(
+              bottom: _AppDimensions.spacingMedium,
+              top: _AppDimensions.spacingMicro,
+            ),
             child: Center(
               child: Text(
-                'No panels in this group.',
-                style: TextStyle(color: Colors.grey, fontSize: 12),
+                _AppStrings.noPanelsInThisGroup,
+                style: TextStyle(
+                  color: _AppColors.textGrey,
+                  fontSize: _AppDimensions.fontSubtitle,
+                ),
               ),
             ),
           ),
@@ -580,19 +890,22 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         for (var panelData in groupPanels) {
           final String name =
-              panelData['panel_name'] ?? panelData['name'] ?? 'Unnamed Panel';
+              panelData[_AppFirestore.fieldGroupName] ??
+              panelData[_AppFirestore.fieldName] ??
+              _AppStrings.unnamedPanel;
 
-          final Map<String, dynamic>? sensorData =
-              panelData['sensor_data'] as Map<String, dynamic>?;
+          final SystemJsonMap? sensorData =
+              panelData[_AppFirestore.fieldSensorData] as SystemJsonMap?;
 
-          final double rawPowerW = (sensorData?['output_power_w'] ?? 0.0)
-              .toDouble();
+          final double rawPowerW =
+              (sensorData?[_AppFirestore.fieldOutputPowerW] ?? 0.0).toDouble();
 
-          final double value = sensorData?['output_power_w'] != null
+          final double value =
+              sensorData?[_AppFirestore.fieldOutputPowerW] != null
               ? rawPowerW / 1000.0
-              : (panelData['power_kwh'] ??
-                        panelData['power_w'] ??
-                        panelData['power'] ??
+              : (panelData[_AppFirestore.fieldPowerKwh] ??
+                        panelData[_AppFirestore.fieldPowerW] ??
+                        panelData[_AppFirestore.fieldPower] ??
                         0.0)
                     .toDouble();
 
@@ -607,16 +920,19 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Helper to verify if panel belongs to a group ---
   bool _isPanelInGroup(
-    Map<String, dynamic> panelData,
+    SystemJsonMap panelData,
     String groupKey,
-    Map<String, dynamic> groupData,
+    SystemJsonMap groupData,
   ) {
     final String groupName =
-        (groupData['group_name'] ?? groupData['name'] ?? '').toString();
-    final String? panelGroup = panelData['group']?.toString();
-    final String? panelGroupName = panelData['group_name']?.toString();
+        (groupData[_AppFirestore.fieldGroupName] ??
+                groupData[_AppFirestore.fieldName] ??
+                '')
+            .toString();
+    final String? panelGroup = panelData[_AppFirestore.fieldGroup]?.toString();
+    final String? panelGroupName = panelData[_AppFirestore.fieldGroupName]
+        ?.toString();
 
     if (panelGroup != null && panelGroup.isNotEmpty && panelGroup == groupKey) {
       return true;
@@ -630,57 +946,64 @@ class _HomeScreenState extends State<HomeScreen> {
     return false;
   }
 
-  // --- Group Section Header Widget ---
   Widget _buildGroupSectionHeader(String groupName) {
     return Padding(
-      padding: const EdgeInsets.only(left: 17, right: 17, top: 14, bottom: 8),
+      padding: const EdgeInsets.only(
+        left: 17,
+        right: 17,
+        top: 14,
+        bottom: _AppDimensions.spacingTiny,
+      ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.all(_AppDimensions.spacingMicro),
             decoration: BoxDecoration(
-              color: const Color(0xFF20831B).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
+              color: _AppColors.midGreen.withValues(
+                alpha: _AppDimensions.shadowAlphaIconBg,
+              ),
+              borderRadius: BorderRadius.circular(_AppDimensions.radiusBadge),
             ),
             child: const Icon(
               CupertinoIcons.rectangle_grid_2x2,
-              size: 14,
-              color: Color(0xFF20831B),
+              size: _AppDimensions.iconSizeSmall,
+              color: _AppColors.midGreen,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: _AppDimensions.spacingTiny),
           Text(
             groupName,
             style: const TextStyle(
-              fontSize: 15,
+              fontSize: _AppDimensions.fontCardTitle,
               fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              color: _AppColors.textBlack87,
             ),
           ),
           const Spacer(),
           const Icon(
             CupertinoIcons.chevron_right,
-            size: 14,
-            color: Colors.grey,
+            size: _AppDimensions.iconSizeSmall,
+            color: _AppColors.textGrey,
           ),
         ],
       ),
     );
   }
 
-  // --- Dynamic Solar Panel Metric Card ---
   Widget metricCard({required String title, required double value}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Container(
           margin: const EdgeInsets.only(bottom: 20),
-          height: 100,
-          width: MediaQuery.of(context).size.width * 0.93,
+          height: _AppDimensions.panelMetricCardHeight,
+          width:
+              MediaQuery.of(context).size.width *
+              _AppDimensions.cardWidthFactorPanel,
           decoration: _cardBoxDecoration(),
           child: Row(
             children: [
-              const SizedBox(width: 15),
+              const SizedBox(width: _AppDimensions.spacingStandard),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -689,11 +1012,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     title,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 21,
+                      fontSize: _AppDimensions.fontTitleLarge,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  const Text('Individual Value', style: TextStyle(fontSize: 9)),
+                  const Text(
+                    _AppStrings.individualValueLabel,
+                    style: TextStyle(fontSize: _AppDimensions.fontCaption),
+                  ),
                 ],
               ),
               const Spacer(),
@@ -707,13 +1033,16 @@ class _HomeScreenState extends State<HomeScreen> {
                         : value.toStringAsFixed(1),
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
-                      fontSize: 30,
+                      fontSize: _AppDimensions.fontValueLarge,
                     ),
                   ),
-                  const Text('KW/H', style: TextStyle(fontSize: 12)),
+                  const Text(
+                    _AppStrings.unitKwhUpper,
+                    style: TextStyle(fontSize: _AppDimensions.fontSubtitle),
+                  ),
                 ],
               ),
-              const SizedBox(width: 15),
+              const SizedBox(width: _AppDimensions.spacingStandard),
             ],
           ),
         ),
@@ -721,18 +1050,17 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Top Dashboard Card ---
   Widget topDashboard({required double soc, required double totalGenerated}) {
     return Container(
-      height: 230,
+      height: _AppDimensions.dashboardHeight,
       decoration: const BoxDecoration(
-        color: Colors.green,
+        color: _AppColors.midGreen,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(20),
-          bottomRight: Radius.circular(20),
+          bottomLeft: Radius.circular(_AppDimensions.radiusDashboard),
+          bottomRight: Radius.circular(_AppDimensions.radiusDashboard),
         ),
         gradient: LinearGradient(
-          colors: [Color(0xFF092508), Color(0xFF20831B)],
+          colors: [_AppColors.darkGreen, _AppColors.midGreen],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           stops: [0.38, 1],
@@ -745,13 +1073,17 @@ class _HomeScreenState extends State<HomeScreen> {
             bottom: 0,
             right: 0,
             child: Image.asset(
-              'assets/images/house_top_dash.png',
+              _AppStrings.houseDashAsset,
               fit: BoxFit.contain,
               alignment: Alignment.topRight,
             ),
           ),
           Padding(
-            padding: const EdgeInsets.only(top: 10, left: 15, right: 15),
+            padding: const EdgeInsets.only(
+              top: _AppDimensions.spacingSmall,
+              left: _AppDimensions.spacingStandard,
+              right: _AppDimensions.spacingStandard,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -762,7 +1094,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildTimeRangeDropdown(),
                   ],
                 ),
-                const SizedBox(height: 15),
+                const SizedBox(height: _AppDimensions.spacingStandard),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -773,25 +1105,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         Text(
                           totalGenerated.toStringAsFixed(2),
                           style: const TextStyle(
-                            fontSize: 35,
+                            fontSize: _AppDimensions.fontHeaderLarge,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _AppColors.iconWhite,
                           ),
                         ),
                         const SizedBox(width: 6),
                         const Text(
-                          'KW/H',
+                          _AppStrings.unitKwhUpper,
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: _AppDimensions.fontHeaderMedium,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: _AppColors.iconWhite,
                           ),
                         ),
                       ],
                     ),
                     const Text(
-                      'Total Generated',
-                      style: TextStyle(fontSize: 10, color: Colors.white),
+                      _AppStrings.totalGeneratedLabel,
+                      style: TextStyle(
+                        fontSize: _AppDimensions.fontSectionHeader,
+                        color: _AppColors.iconWhite,
+                      ),
                     ),
                   ],
                 ),
@@ -808,28 +1143,33 @@ class _HomeScreenState extends State<HomeScreen> {
       height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFF092508),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF20341E), width: 1.5),
+        color: _AppColors.darkGreen,
+        borderRadius: BorderRadius.circular(_AppDimensions.radiusDropdown),
+        border: Border.all(
+          color: _AppColors.borderGreen,
+          width: _AppDimensions.borderWidthStandard,
+        ),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: selectedTimeRange,
-          dropdownColor: const Color(0xFF092508),
+          dropdownColor: _AppColors.darkGreen,
           icon: const Padding(
-            padding: EdgeInsets.only(left: 4),
+            padding: EdgeInsets.only(left: _AppDimensions.spacingMicro),
             child: Icon(
               CupertinoIcons.chevron_down,
-              size: 14,
-              color: Colors.white,
+              size: _AppDimensions.iconSizeSmall,
+              color: _AppColors.iconWhite,
             ),
           ),
           style: const TextStyle(
-            color: Colors.white,
-            fontSize: 11,
+            color: _AppColors.iconWhite,
+            fontSize: _AppDimensions.fontBodySmall,
             fontWeight: FontWeight.w500,
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(
+            _AppDimensions.radiusDropdownMenu,
+          ),
           onChanged: (String? newValue) {
             if (newValue != null) {
               setState(() {
@@ -854,9 +1194,21 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Stack(
             alignment: Alignment.center,
             children: const [
-              Icon(CupertinoIcons.bolt_fill, size: 27, color: Colors.white),
-              Icon(CupertinoIcons.bolt_fill, size: 24, color: Colors.black),
-              Icon(CupertinoIcons.bolt_fill, size: 23, color: Colors.yellow),
+              Icon(
+                CupertinoIcons.bolt_fill,
+                size: _AppDimensions.iconSizeExtraLarge,
+                color: _AppColors.iconWhite,
+              ),
+              Icon(
+                CupertinoIcons.bolt_fill,
+                size: _AppDimensions.iconSizeLarge,
+                color: _AppColors.textBlack,
+              ),
+              Icon(
+                CupertinoIcons.bolt_fill,
+                size: _AppDimensions.iconSizeMediumLarge,
+                color: _AppColors.boltYellow,
+              ),
             ],
           ),
         ),
@@ -868,29 +1220,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBadgeIcon(IconData icon) {
     return Container(
-      height: 40,
-      width: 40,
+      height: _AppDimensions.appBarButtonSize,
+      width: _AppDimensions.appBarButtonSize,
       margin: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFF20341E), width: 2.5),
+        border: Border.all(
+          color: _AppColors.borderGreen,
+          width: _AppDimensions.borderWidthThick,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
+            color: _AppColors.textBlack.withValues(
+              alpha: _AppDimensions.shadowAlphaBadge,
+            ),
             blurRadius: 4,
             offset: const Offset(0, 4),
           ),
         ],
       ),
       alignment: Alignment.center,
-      child: Icon(icon, size: 23, color: Colors.white),
+      child: Icon(
+        icon,
+        size: _AppDimensions.iconSizeMediumLarge,
+        color: _AppColors.iconWhite,
+      ),
     );
   }
 
-  // --- Linked Side Menu Drawer ---
   Widget _buildSideMenu(BuildContext context) {
     return Drawer(
-      backgroundColor: Colors.white,
+      backgroundColor: _AppColors.backgroundWhite,
       elevation: 0,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -898,33 +1258,35 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.only(
               top: 60,
-              left: 24,
-              right: 24,
+              left: _AppDimensions.spacingLarge,
+              right: _AppDimensions.spacingLarge,
               bottom: 20,
             ),
-            color: Colors.white,
+            color: _AppColors.backgroundWhite,
             child: Row(
               children: [
                 Container(
-                  height: 42,
-                  width: 42,
+                  height: _AppDimensions.drawerHeaderIconSize,
+                  width: _AppDimensions.drawerHeaderIconSize,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                    color: _AppColors.drawerBgGrey,
+                    borderRadius: BorderRadius.circular(
+                      _AppDimensions.radiusDropdownFilter,
+                    ),
+                    border: Border.all(color: _AppColors.drawerBorderGrey),
                   ),
                   child: const Icon(
                     CupertinoIcons.bolt,
-                    color: Colors.black87,
-                    size: 20,
+                    color: _AppColors.textBlack87,
+                    size: _AppDimensions.iconSizeStandard,
                   ),
                 ),
                 const SizedBox(width: 14),
                 const Text(
-                  'Menu',
+                  _AppStrings.menuHeader,
                   style: TextStyle(
-                    color: Colors.black,
-                    fontSize: 16,
+                    color: _AppColors.textBlack,
+                    fontSize: _AppDimensions.fontDrawerMenu,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -932,17 +1294,22 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24),
-            child: Divider(color: Color(0xFFE5E7EB), height: 1),
+            padding: EdgeInsets.symmetric(
+              horizontal: _AppDimensions.spacingLarge,
+            ),
+            child: Divider(color: _AppColors.drawerBorderGrey, height: 1),
           ),
           Expanded(
             child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              padding: const EdgeInsets.symmetric(
+                horizontal: _AppDimensions.spacingMedium,
+                vertical: _AppDimensions.spacingMedium,
+              ),
               children: [
-                _buildSectionHeader('DASHBOARDS'),
+                _buildSectionHeader(_AppStrings.sectionDashboards),
                 _buildDrawerItem(
                   icon: CupertinoIcons.chart_pie,
-                  title: 'Overview',
+                  title: _AppStrings.menuOverview,
                   isSelected: true,
                   onTap: () {
                     if (Navigator.canPop(context)) {
@@ -952,7 +1319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 _buildDrawerItem(
                   icon: CupertinoIcons.graph_square,
-                  title: 'Metrics',
+                  title: _AppStrings.menuMetrics,
                   onTap: () {
                     if (Navigator.canPop(context)) {
                       Navigator.pop(context);
@@ -966,10 +1333,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
-                _buildSectionHeader('SETUP'),
+                _buildSectionHeader(_AppStrings.sectionSetup),
                 _buildDrawerItem(
                   icon: CupertinoIcons.plus_square,
-                  title: 'Add a Setup',
+                  title: _AppStrings.menuAddSetup,
                   onTap: () {
                     if (Navigator.canPop(context)) {
                       Navigator.pop(context);
@@ -984,7 +1351,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 _buildDrawerItem(
                   icon: CupertinoIcons.rectangle_grid_2x2,
-                  title: 'Sites',
+                  title: _AppStrings.menuSites,
                   onTap: () {
                     if (Navigator.canPop(context)) {
                       Navigator.pop(context);
@@ -998,10 +1365,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
-                _buildSectionHeader('SETTINGS AND ACCOUNT'),
+                _buildSectionHeader(_AppStrings.sectionSettingsAccount),
                 _buildDrawerItem(
                   icon: CupertinoIcons.gear,
-                  title: 'Settings',
+                  title: _AppStrings.menuSettings,
                   onTap: () {
                     if (Navigator.canPop(context)) {
                       Navigator.pop(context);
@@ -1016,7 +1383,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 _buildDrawerItem(
                   icon: CupertinoIcons.square_arrow_right,
-                  title: 'Log Out',
+                  title: _AppStrings.menuLogOut,
                   isDestructive: true,
                   onTap: _handleLogout,
                 ),
@@ -1024,12 +1391,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(_AppDimensions.spacingLarge),
             child: Text(
-              'v1.0.2 • Solar Monitoring',
+              _AppStrings.appVersion,
               style: TextStyle(
-                color: Colors.grey.shade500,
-                fontSize: 11,
+                color: _AppColors.textGrey500,
+                fontSize: _AppDimensions.fontBodySmall,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -1041,12 +1408,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(left: 12, bottom: 8, top: 4),
+      padding: const EdgeInsets.only(
+        left: 12,
+        bottom: _AppDimensions.spacingTiny,
+        top: _AppDimensions.spacingMicro,
+      ),
       child: Text(
         title,
         style: const TextStyle(
-          color: Color(0xFF6B7280),
-          fontSize: 10,
+          color: _AppColors.textSubtleGrey,
+          fontSize: _AppDimensions.fontSectionHeader,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.1,
         ),
@@ -1062,35 +1433,41 @@ class _HomeScreenState extends State<HomeScreen> {
     required VoidCallback onTap,
   }) {
     final Color iconColor = isDestructive
-        ? const Color(0xFFDC2626)
-        : (isSelected ? const Color(0xFF111827) : const Color(0xFF6B7280));
+        ? _AppColors.destructiveRed
+        : (isSelected ? _AppColors.textPrimaryDark : _AppColors.textSubtleGrey);
 
     final Color textColor = isDestructive
-        ? const Color(0xFFDC2626)
-        : (isSelected ? Colors.black : const Color(0xFF374151));
+        ? _AppColors.destructiveRed
+        : (isSelected ? _AppColors.textBlack : _AppColors.textDarkGrey);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: ListTile(
-        tileColor: isSelected ? const Color(0xFFF3F4F6) : Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        tileColor: isSelected ? _AppColors.drawerBgGrey : Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+        ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
         dense: true,
-        leading: Icon(icon, color: iconColor, size: 18),
+        leading: Icon(
+          icon,
+          color: iconColor,
+          size: _AppDimensions.iconSizeDrawer,
+        ),
         title: Text(
           title,
           style: TextStyle(
             color: textColor,
-            fontSize: 13,
+            fontSize: _AppDimensions.fontBodyMedium,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
         trailing: isSelected
             ? Container(
-                width: 6,
-                height: 6,
+                width: _AppDimensions.radiusIndicatorDot,
+                height: _AppDimensions.radiusIndicatorDot,
                 decoration: const BoxDecoration(
-                  color: Color(0xFF22C55E),
+                  color: _AppColors.activeIndicatorGreen,
                   shape: BoxShape.circle,
                 ),
               )
@@ -1100,30 +1477,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Linked App Bar ---
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
-      toolbarHeight: 70,
-      leadingWidth: 70,
-      backgroundColor: const Color(0xFF092508),
+      toolbarHeight: _AppDimensions.appBarHeight,
+      leadingWidth: _AppDimensions.appBarHeight,
+      backgroundColor: _AppColors.darkGreen,
       leading: Center(
         child: GestureDetector(
           onTap: () {
             _scaffoldKey.currentState?.openDrawer();
           },
           child: Container(
-            height: 40,
-            width: 40,
+            height: _AppDimensions.appBarButtonSize,
+            width: _AppDimensions.appBarButtonSize,
             decoration: BoxDecoration(
               color: Colors.transparent,
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF20341E), width: 1.5),
+              border: Border.all(
+                color: _AppColors.borderGreen,
+                width: _AppDimensions.borderWidthStandard,
+              ),
             ),
             alignment: Alignment.center,
             child: const Icon(
               CupertinoIcons.line_horizontal_3_decrease,
-              size: 20,
-              color: Colors.white,
+              size: _AppDimensions.iconSizeStandard,
+              color: _AppColors.iconWhite,
             ),
           ),
         ),
@@ -1140,19 +1519,22 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
             child: Container(
-              width: 40,
-              height: 40,
+              width: _AppDimensions.appBarButtonSize,
+              height: _AppDimensions.appBarButtonSize,
               margin: const EdgeInsets.only(right: 15),
               decoration: BoxDecoration(
                 color: Colors.transparent,
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFF20341E), width: 1.5),
+                border: Border.all(
+                  color: _AppColors.borderGreen,
+                  width: _AppDimensions.borderWidthStandard,
+                ),
               ),
               alignment: Alignment.center,
               child: const Icon(
                 CupertinoIcons.bell,
-                size: 22,
-                color: Colors.white,
+                size: _AppDimensions.iconSizeMedium,
+                color: _AppColors.iconWhite,
               ),
             ),
           ),
@@ -1163,11 +1545,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   BoxDecoration _cardBoxDecoration() {
     return BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(10),
+      color: _AppColors.backgroundWhite,
+      borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
       boxShadow: [
         BoxShadow(
-          color: Colors.grey.withValues(alpha: 0.2),
+          color: _AppColors.cardShadow.withValues(
+            alpha: _AppDimensions.shadowAlphaCard,
+          ),
           spreadRadius: 2,
           blurRadius: 3,
           offset: const Offset(0, 2),
@@ -1176,7 +1560,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
-
-//finally done
-//firestore optimized

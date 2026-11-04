@@ -5,10 +5,94 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import 'forgot_password_screen.dart';
-import 'account_setup.dart'; // Import AccountSetupScreen
+import 'account_setup.dart';
 
 class SlickLoginScreen extends StatefulWidget {
   const SlickLoginScreen({super.key});
+
+  // Color Palette Constants
+  static const Color headerGreen = Color(0xFF10CE2C);
+  static const Color buttonGreen = Color(0xFF4CAE50);
+  static const Color inputBg = Color(0xFFD9D9D9);
+  static const Color darkGreen = Color(0xFF092508);
+  static const Color snackbarErrorBg = Color(0xFFB71C1C);
+  static const Color successIconColor = Colors.greenAccent;
+
+  // SharedPreferences Keys
+  static const String prefSavedEmail = 'saved_email';
+  static const String prefRememberMe = 'remember_me';
+
+  // Firestore Collections and Fields
+  static const String colUsers = 'users';
+  static const String fieldLastLogin = 'last_login';
+  static const String fieldName = 'name';
+  static const String fieldUid = 'uid';
+  static const String fieldEmail = 'email';
+  static const String fieldCreatedAt = 'created_at';
+  static const String fieldAssignedGroups = 'assigned_groups';
+  static const String fieldRole = 'role';
+  static const String defaultUserRole = 'user';
+
+  // Navigation Defaults
+  static const double defaultHomePercentage = 20.0;
+  static const int defaultHomeCardCount = 1;
+
+  // Validation Limits
+  static const int minPasswordLength = 8;
+
+  // Validation Patterns
+  static final RegExp emailRegExp = RegExp(
+    r'^[a-zA-Z0-9.!#$%&'
+    "'"
+    r'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$',
+  );
+  static final RegExp uppercaseRegExp = RegExp(r'[A-Z]');
+  static final RegExp lowercaseRegExp = RegExp(r'[a-z]');
+  static final RegExp numberRegExp = RegExp(r'[0-9]');
+  static final RegExp specialCharRegExp = RegExp(r'[!@#$%^&*(),.?":{}|<>]');
+
+  // UI Strings
+  static const String titleSignIn = 'Sign In';
+  static const String titleSignUp = 'Sign Up';
+  static const String welcomeBackText = 'Welcome Back!';
+  static const String hintEmail = 'Email Address';
+  static const String hintPassword = 'Password';
+  static const String hintConfirmPassword = 'Confirm Password';
+  static const String rememberMeText = 'Remember Me';
+  static const String forgotPasswordText = 'Forgot Password';
+  static const String buttonLogIn = 'Log In';
+  static const String buttonCreateAccount = 'Create Account';
+
+  // Messages & Error Strings
+  static const String msgEnterEmail = 'Please enter your email address';
+  static const String msgEnterValidEmail = 'Please enter a valid email address';
+  static const String msgEnterPassword = 'Please enter your password';
+  static const String msgPasswordMinLength =
+      'Password must be at least 8 characters long';
+  static const String msgPasswordUppercase =
+      'Password must contain at least one uppercase letter';
+  static const String msgPasswordLowercase =
+      'Password must contain at least one lowercase letter';
+  static const String msgPasswordNumber =
+      'Password must contain at least one number';
+  static const String msgPasswordSpecialChar =
+      'Password must contain at least one special character';
+  static const String msgConfirmPassword = 'Please confirm your password';
+  static const String msgPasswordsDoNotMatch = 'Passwords do not match';
+  static const String msgAuthSuccess = 'Authenticated successfully';
+  static const String msgRegisterSuccess =
+      'Account registered successfully! Please sign in.';
+
+  // Auth Exception Messages
+  static const String errUserNotFound = 'No account exists for this email.';
+  static const String errWrongPassword = 'Incorrect email or password.';
+  static const String errEmailInUse =
+      'An account already exists with this email.';
+  static const String errWeakPassword =
+      'Password should be at least 8 characters.';
+  static const String errInvalidEmail = 'Please enter a valid email address.';
+  static const String errDefaultAuth =
+      'An error occurred during authentication.';
 
   @override
   State<SlickLoginScreen> createState() => _SlickLoginScreenState();
@@ -26,12 +110,6 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
   bool _isLoading = false;
   bool _rememberMe = false;
 
-  // Theme Constants (Updated to match mockup color scheme)
-  static const Color headerGreen = Color(0xFF10CE2C);
-  static const Color buttonGreen = Color(0xFF4CAE50);
-  static const Color inputBg = Color(0xFFD9D9D9);
-  static const Color darkGreen = Color(0xFF092508);
-
   @override
   void initState() {
     super.initState();
@@ -40,8 +118,8 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
   Future<void> _loadSavedEmail() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedEmail = prefs.getString('saved_email');
-    final remember = prefs.getBool('remember_me') ?? false;
+    final savedEmail = prefs.getString(SlickLoginScreen.prefSavedEmail);
+    final remember = prefs.getBool(SlickLoginScreen.prefRememberMe) ?? false;
 
     if (remember && savedEmail != null && mounted) {
       setState(() {
@@ -63,39 +141,34 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
   String? _validateEmail(String? val) {
     if (val == null || val.trim().isEmpty) {
-      return 'Please enter your email address';
+      return SlickLoginScreen.msgEnterEmail;
     }
-    final emailRegExp = RegExp(
-      r'^[a-zA-Z0-9.!#$%&'
-      "'"
-      r'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$',
-    );
-    if (!emailRegExp.hasMatch(val.trim())) {
-      return 'Please enter a valid email address';
+    if (!SlickLoginScreen.emailRegExp.hasMatch(val.trim())) {
+      return SlickLoginScreen.msgEnterValidEmail;
     }
     return null;
   }
 
   String? _validatePassword(String? val) {
     if (val == null || val.trim().isEmpty) {
-      return 'Please enter your password';
+      return SlickLoginScreen.msgEnterPassword;
     }
 
     if (_selectedTab == 1) {
-      if (val.length < 8) {
-        return 'Password must be at least 8 characters long';
+      if (val.length < SlickLoginScreen.minPasswordLength) {
+        return SlickLoginScreen.msgPasswordMinLength;
       }
-      if (!RegExp(r'[A-Z]').hasMatch(val)) {
-        return 'Password must contain at least one uppercase letter';
+      if (!SlickLoginScreen.uppercaseRegExp.hasMatch(val)) {
+        return SlickLoginScreen.msgPasswordUppercase;
       }
-      if (!RegExp(r'[a-z]').hasMatch(val)) {
-        return 'Password must contain at least one lowercase letter';
+      if (!SlickLoginScreen.lowercaseRegExp.hasMatch(val)) {
+        return SlickLoginScreen.msgPasswordLowercase;
       }
-      if (!RegExp(r'[0-9]').hasMatch(val)) {
-        return 'Password must contain at least one number';
+      if (!SlickLoginScreen.numberRegExp.hasMatch(val)) {
+        return SlickLoginScreen.msgPasswordNumber;
       }
-      if (!RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(val)) {
-        return 'Password must contain at least one special character';
+      if (!SlickLoginScreen.specialCharRegExp.hasMatch(val)) {
+        return SlickLoginScreen.msgPasswordSpecialChar;
       }
     }
     return null;
@@ -104,10 +177,10 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
   String? _validateConfirmPassword(String? val) {
     if (_selectedTab == 1) {
       if (val == null || val.isEmpty) {
-        return 'Please confirm your password';
+        return SlickLoginScreen.msgConfirmPassword;
       }
       if (val != _passwordController.text) {
-        return 'Passwords do not match';
+        return SlickLoginScreen.msgPasswordsDoNotMatch;
       }
     }
     return null;
@@ -130,11 +203,11 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
         // Save or clear remember me preference
         final prefs = await SharedPreferences.getInstance();
         if (_rememberMe) {
-          await prefs.setString('saved_email', email);
-          await prefs.setBool('remember_me', true);
+          await prefs.setString(SlickLoginScreen.prefSavedEmail, email);
+          await prefs.setBool(SlickLoginScreen.prefRememberMe, true);
         } else {
-          await prefs.remove('saved_email');
-          await prefs.setBool('remember_me', false);
+          await prefs.remove(SlickLoginScreen.prefSavedEmail);
+          await prefs.setBool(SlickLoginScreen.prefRememberMe, false);
         }
 
         TextInput.finishAutofillContext();
@@ -144,18 +217,18 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
         if (credential.user != null) {
           // Update last login timestamp in Firestore
           final userDocRef = FirebaseFirestore.instance
-              .collection('users')
+              .collection(SlickLoginScreen.colUsers)
               .doc(credential.user!.uid);
 
           await userDocRef.set({
-            'last_login': FieldValue.serverTimestamp(),
+            SlickLoginScreen.fieldLastLogin: FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
-          // Check if user has completed their profile name (Approach 1)
+          // Check if user has completed their profile name
           final docSnap = await userDocRef.get();
           if (docSnap.exists && docSnap.data() != null) {
             final data = docSnap.data()!;
-            final name = data['name'];
+            final name = data[SlickLoginScreen.fieldName];
             if (name != null && name.toString().trim().isNotEmpty) {
               isProfileIncomplete = false;
             }
@@ -167,15 +240,18 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             behavior: SnackBarBehavior.floating,
-            backgroundColor: darkGreen,
+            backgroundColor: SlickLoginScreen.darkGreen,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
             content: const Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: SlickLoginScreen.successIconColor,
+                ),
                 SizedBox(width: 12),
-                Text('Authenticated successfully'),
+                Text(SlickLoginScreen.msgAuthSuccess),
               ],
             ),
           ),
@@ -189,8 +265,11 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
         } else {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
-              builder: (context) =>
-                  const HomeScreen(currentPercentage: 20, cardCount: 1),
+              builder: (context) => HomeScreen(
+                currentPercentage: SlickLoginScreen.defaultHomePercentage
+                    .toInt(),
+                cardCount: SlickLoginScreen.defaultHomeCardCount,
+              ),
             ),
           );
         }
@@ -201,14 +280,14 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
         if (credential.user != null) {
           await FirebaseFirestore.instance
-              .collection('users')
+              .collection(SlickLoginScreen.colUsers)
               .doc(credential.user!.uid)
               .set({
-                'uid': credential.user!.uid,
-                'email': email,
-                'created_at': FieldValue.serverTimestamp(),
-                'assigned_groups': [],
-                'role': 'user',
+                SlickLoginScreen.fieldUid: credential.user!.uid,
+                SlickLoginScreen.fieldEmail: email,
+                SlickLoginScreen.fieldCreatedAt: FieldValue.serverTimestamp(),
+                SlickLoginScreen.fieldAssignedGroups: [],
+                SlickLoginScreen.fieldRole: SlickLoginScreen.defaultUserRole,
               });
         }
 
@@ -229,19 +308,18 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             behavior: SnackBarBehavior.floating,
-            backgroundColor: darkGreen,
+            backgroundColor: SlickLoginScreen.darkGreen,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
             content: const Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Account registered successfully! Please sign in.',
-                  ),
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: SlickLoginScreen.successIconColor,
                 ),
+                SizedBox(width: 12),
+                Expanded(child: Text(SlickLoginScreen.msgRegisterSuccess)),
               ],
             ),
           ),
@@ -250,17 +328,17 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
 
-      String errorMessage = 'An error occurred during authentication.';
+      String errorMessage = SlickLoginScreen.errDefaultAuth;
       if (e.code == 'user-not-found') {
-        errorMessage = 'No account exists for this email.';
+        errorMessage = SlickLoginScreen.errUserNotFound;
       } else if (e.code == 'wrong-password' || e.code == 'invalid-credential') {
-        errorMessage = 'Incorrect email or password.';
+        errorMessage = SlickLoginScreen.errWrongPassword;
       } else if (e.code == 'email-already-in-use') {
-        errorMessage = 'An account already exists with this email.';
+        errorMessage = SlickLoginScreen.errEmailInUse;
       } else if (e.code == 'weak-password') {
-        errorMessage = 'Password should be at least 8 characters.';
+        errorMessage = SlickLoginScreen.errWeakPassword;
       } else if (e.code == 'invalid-email') {
-        errorMessage = 'Please enter a valid email address.';
+        errorMessage = SlickLoginScreen.errInvalidEmail;
       } else if (e.message != null) {
         errorMessage = e.message!;
       }
@@ -268,7 +346,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.red.shade900,
+          backgroundColor: SlickLoginScreen.snackbarErrorBg,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -286,7 +364,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           behavior: SnackBarBehavior.floating,
-          backgroundColor: Colors.red.shade900,
+          backgroundColor: SlickLoginScreen.snackbarErrorBg,
           content: Text('Unexpected error: ${e.toString()}'),
         ),
       );
@@ -307,7 +385,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: headerGreen,
+      backgroundColor: SlickLoginScreen.headerGreen,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -321,7 +399,9 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  _selectedTab == 0 ? 'Sign In' : 'Sign Up',
+                  _selectedTab == 0
+                      ? SlickLoginScreen.titleSignIn
+                      : SlickLoginScreen.titleSignUp,
                   style: const TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -353,7 +433,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                           const SizedBox(height: 8),
                           // HEADER TEXT
                           const Text(
-                            'Welcome Back!',
+                            SlickLoginScreen.welcomeBackText,
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
@@ -376,7 +456,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                               fontSize: 14,
                             ),
                             decoration: _buildInputDecoration(
-                              hint: 'Email Address',
+                              hint: SlickLoginScreen.hintEmail,
                             ),
                             validator: _validateEmail,
                           ),
@@ -403,7 +483,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                               fontSize: 14,
                             ),
                             decoration: _buildInputDecoration(
-                              hint: 'Password',
+                              hint: SlickLoginScreen.hintPassword,
                               suffixIcon: IconButton(
                                 icon: Icon(
                                   _isPasswordVisible
@@ -438,7 +518,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                 fontSize: 14,
                               ),
                               decoration: _buildInputDecoration(
-                                hint: 'Confirm Password',
+                                hint: SlickLoginScreen.hintConfirmPassword,
                                 suffixIcon: IconButton(
                                   icon: Icon(
                                     _isConfirmPasswordVisible
@@ -472,7 +552,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                     width: 20,
                                     child: Checkbox(
                                       value: _rememberMe,
-                                      activeColor: buttonGreen,
+                                      activeColor: SlickLoginScreen.buttonGreen,
                                       side: const BorderSide(
                                         color: Colors.black38,
                                         width: 1.5,
@@ -489,7 +569,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                   ),
                                   const SizedBox(width: 8),
                                   const Text(
-                                    'Remember Me',
+                                    SlickLoginScreen.rememberMeText,
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w500,
@@ -501,11 +581,11 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                               GestureDetector(
                                 onTap: _navigateToForgotPassword,
                                 child: const Text(
-                                  'Forgot Password',
+                                  SlickLoginScreen.forgotPasswordText,
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
-                                    color: buttonGreen,
+                                    color: SlickLoginScreen.buttonGreen,
                                   ),
                                 ),
                               ),
@@ -520,7 +600,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                             height: 52,
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: buttonGreen,
+                                backgroundColor: SlickLoginScreen.buttonGreen,
                                 foregroundColor: Colors.white,
                                 elevation: 0,
                                 shape: RoundedRectangleBorder(
@@ -539,8 +619,9 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                     )
                                   : Text(
                                       _selectedTab == 0
-                                          ? 'Log In'
-                                          : 'Create Account',
+                                          ? SlickLoginScreen.buttonLogIn
+                                          : SlickLoginScreen
+                                                .buttonCreateAccount,
                                       style: const TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.bold,
@@ -556,7 +637,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                             height: 48,
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
-                              color: inputBg,
+                              color: SlickLoginScreen.inputBg,
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Row(
@@ -580,7 +661,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                       ),
                                       alignment: Alignment.center,
                                       child: Text(
-                                        'Sign In',
+                                        SlickLoginScreen.titleSignIn,
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: _selectedTab == 0
@@ -611,7 +692,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                       ),
                                       alignment: Alignment.center,
                                       child: Text(
-                                        'Sign Up',
+                                        SlickLoginScreen.titleSignUp,
                                         style: TextStyle(
                                           fontSize: 14,
                                           fontWeight: _selectedTab == 1
@@ -648,7 +729,7 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
       hintStyle: const TextStyle(color: Colors.black45, fontSize: 14),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: inputBg,
+      fillColor: SlickLoginScreen.inputBg,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
@@ -660,7 +741,10 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: buttonGreen, width: 1.5),
+        borderSide: const BorderSide(
+          color: SlickLoginScreen.buttonGreen,
+          width: 1.5,
+        ),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),

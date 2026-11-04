@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
@@ -8,10 +9,13 @@ import 'initial_setup_screen.dart';
 
 // --- Data Models ---
 class PanelItem {
+  static const String _defaultPanelName = 'Unnamed Panel';
+
   final String id;
   final String name;
   final bool isActive;
   final String? groupId;
+  final String? ownerUid;
   final int order;
 
   PanelItem({
@@ -19,6 +23,7 @@ class PanelItem {
     required this.name,
     this.isActive = true,
     this.groupId,
+    this.ownerUid,
     this.order = 0,
   });
 
@@ -26,13 +31,14 @@ class PanelItem {
     final diagnostics = data['diagnostics'] as Map<String, dynamic>? ?? {};
     return PanelItem(
       id: id,
-      name: data['panel_name'] ?? data['name'] ?? 'Unnamed Panel',
+      name: data['panel_name'] ?? data['name'] ?? _defaultPanelName,
       isActive:
           data['isActive'] ??
           data['is_active'] ??
           diagnostics['is_active'] ??
           true,
       groupId: data['group'] ?? data['groupId'] ?? data['group_id'],
+      ownerUid: data['owner_uid'] ?? data['ownerUid'],
       order:
           (data['panel_order'] as num?)?.toInt() ??
           (data['order'] as num?)?.toInt() ??
@@ -45,16 +51,20 @@ class PanelItem {
       'panel_id': id,
       'panel_name': name,
       'group': groupId,
+      'owner_uid': ownerUid,
       'panel_order': order,
     };
   }
 }
 
 class PanelGroup {
+  static const String _defaultGroupName = 'Site';
+
   final String id;
   String name;
   bool isExpanded;
   int order;
+  String? ownerUid;
   List<PanelItem> panels;
 
   PanelGroup({
@@ -62,6 +72,7 @@ class PanelGroup {
     required this.name,
     this.isExpanded = false,
     this.order = 0,
+    this.ownerUid,
     List<PanelItem>? panels,
   }) : panels = panels ?? [];
 
@@ -72,11 +83,12 @@ class PanelGroup {
   ) {
     return PanelGroup(
       id: id,
-      name: data['group_name'] ?? data['name'] ?? 'Site',
+      name: data['group_name'] ?? data['name'] ?? _defaultGroupName,
       order:
           (data['group_order'] as num?)?.toInt() ??
           (data['order'] as num?)?.toInt() ??
           0,
+      ownerUid: data['owner_uid'] ?? data['ownerUid'],
       panels: memberPanels,
     );
   }
@@ -111,13 +123,30 @@ class GroupDragData {
 
 // --- Firebase Service Layer ---
 class GroupFirestoreService {
+  static const String _colSystemStatus = 'system_status';
+  static const String _docCurrent = 'current';
+  static const String _colUsers = 'users';
+  static const String _colGroups = 'groups';
+  static const String _colDevices = 'devices';
+  static const String _fieldOwnerUid = 'owner_uid';
+
+  static const String _groupIdPrefix = 'group_';
+  static const Set<String> _ungroupedIdentifiers = {
+    'None',
+    'null',
+    'ungrouped',
+  };
+
   static final _db = FirebaseFirestore.instance;
   static final DocumentReference _statusDocRef = _db
-      .collection('system_status')
-      .doc('current');
+      .collection(_colSystemStatus)
+      .doc(_docCurrent);
 
-  /// Stream reading nested map structures inside system_status/current
-  static Stream<DashboardData> getDashboardDataStream() {
+  /// Stream reading nested map structures inside system_status/current filtered by current user
+  static Stream<DashboardData> getDashboardDataStream(
+    String? currentUid,
+    List<String> pairedDevices,
+  ) {
     return _statusDocRef.snapshots(includeMetadataChanges: false).map((
       snapshot,
     ) {
@@ -126,62 +155,113 @@ class GroupFirestoreService {
       final groupsMap = data['groups'] as Map<String, dynamic>? ?? {};
       final panelsMap = data['panels'] as Map<String, dynamic>? ?? {};
 
-      // 1. Parse all Panels
-      final List<PanelItem> allPanels = panelsMap.entries.map((entry) {
-        final panelData = entry.value as Map<String, dynamic>? ?? {};
-        return PanelItem.fromMap(entry.key, panelData);
-      }).toList();
+      // 1. Parse and Filter Panels for Current User
+      final List<PanelItem> allPanels = panelsMap.entries
+          .map((entry) {
+            final panelData = entry.value as Map<String, dynamic>? ?? {};
+            return PanelItem.fromMap(entry.key, panelData);
+          })
+          .where((p) {
+            if (currentUid == null) return true;
+            return p.ownerUid == currentUid || pairedDevices.contains(p.id);
+          })
+          .toList();
 
       allPanels.sort((a, b) => a.order.compareTo(b.order));
 
-      // 2. Parse all Groups
-      final List<PanelGroup> groups = groupsMap.entries.map((entry) {
-        final groupId = entry.key;
-        final groupData = entry.value as Map<String, dynamic>? ?? {};
-        final groupName = groupData['group_name'] ?? groupData['name'] ?? '';
+      // 2. Parse and Filter Groups for Current User
+      final List<PanelGroup> groups = groupsMap.entries
+          .map((entry) {
+            final groupId = entry.key;
+            final groupData = entry.value as Map<String, dynamic>? ?? {};
+            final groupName =
+                groupData['group_name'] ?? groupData['name'] ?? '';
 
-        final memberPanels = allPanels.where((p) {
-          return p.groupId == groupId ||
-              (p.groupId != null && p.groupId == groupName);
-        }).toList();
+            final memberPanels = allPanels.where((p) {
+              return p.groupId == groupId ||
+                  (p.groupId != null && p.groupId == groupName);
+            }).toList();
 
-        return PanelGroup.fromMap(groupId, groupData, memberPanels);
-      }).toList();
+            return PanelGroup.fromMap(groupId, groupData, memberPanels);
+          })
+          .where((g) {
+            if (currentUid == null) return true;
+            return g.ownerUid == currentUid || g.panels.isNotEmpty;
+          })
+          .toList();
 
       groups.sort((a, b) => a.order.compareTo(b.order));
 
-      // 3. Extract Ungrouped Panels
+      // 3. Extract Ungrouped Panels for Current User
       final List<PanelItem> ungroupedPanels = allPanels.where((p) {
         final g = p.groupId;
-        return g == null ||
-            g.isEmpty ||
-            g == 'None' ||
-            g == 'null' ||
-            g == 'ungrouped';
+        return g == null || g.isEmpty || _ungroupedIdentifiers.contains(g);
       }).toList();
 
       return DashboardData(groups: groups, ungroupedPanels: ungroupedPanels);
     });
   }
 
-  /// Write: Add New Group into system_status/current
-  static Future<void> addGroup(String name, int order) async {
-    final String groupId = 'group_${DateTime.now().millisecondsSinceEpoch}';
+  /// Write: Add New Group into system_status/current and users/{uid}/groups
+  static Future<void> addGroup(String name, int order, String? ownerUid) async {
+    final String groupId =
+        '$_groupIdPrefix${DateTime.now().millisecondsSinceEpoch}';
 
-    await _statusDocRef.set({
+    final batch = _db.batch();
+
+    batch.set(_statusDocRef, {
       'groups': {
         groupId: {
           'group_id': groupId,
           'group_name': name,
           'group_order': order,
+          'owner_uid': ownerUid,
         },
       },
     }, SetOptions(merge: true));
+
+    if (ownerUid != null && ownerUid.isNotEmpty) {
+      final userGroupRef = _db
+          .collection(_colUsers)
+          .doc(ownerUid)
+          .collection(_colGroups)
+          .doc(groupId);
+
+      batch.set(userGroupRef, {
+        'group_id': groupId,
+        'group_name': name,
+        'group_order': order,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
   }
 
-  /// Write: Rename Group in system_status/current
-  static Future<void> renameGroup(String groupId, String newName) async {
-    await _statusDocRef.update({'groups.$groupId.group_name': newName});
+  /// Write: Rename Group in system_status/current and users/{uid}/groups
+  static Future<void> renameGroup(
+    String groupId,
+    String newName, {
+    String? ownerUid,
+  }) async {
+    final batch = _db.batch();
+
+    batch.update(_statusDocRef, {'groups.$groupId.group_name': newName});
+
+    if (ownerUid != null && ownerUid.isNotEmpty) {
+      final userGroupRef = _db
+          .collection(_colUsers)
+          .doc(ownerUid)
+          .collection(_colGroups)
+          .doc(groupId);
+
+      batch.set(userGroupRef, {
+        'group_name': newName,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
   }
 
   /// Write: Rename Panel in system_status/current
@@ -194,14 +274,20 @@ class GroupFirestoreService {
     await _statusDocRef.update({'panels.$panelId': FieldValue.delete()});
 
     try {
-      await _db.collection('devices').doc(panelId).update({'owner_uid': ''});
+      await _db.collection(_colDevices).doc(panelId).update({
+        _fieldOwnerUid: '',
+      });
     } catch (_) {
       // Ignored if device registry entry does not exist
     }
   }
 
-  /// Write: Safe Delete Group and unassign member panels in system_status/current
-  static Future<void> deleteGroup(String groupId, String groupName) async {
+  /// Write: Safe Delete Group and unassign member panels in system_status/current and users/{uid}/groups
+  static Future<void> deleteGroup(
+    String groupId,
+    String groupName, {
+    String? ownerUid,
+  }) async {
     final docSnap = await _statusDocRef.get();
     final data = docSnap.data() as Map<String, dynamic>? ?? {};
     final panelsMap = data['panels'] as Map<String, dynamic>? ?? {};
@@ -219,7 +305,19 @@ class GroupFirestoreService {
       }
     });
 
-    await _statusDocRef.update(updates);
+    final batch = _db.batch();
+    batch.update(_statusDocRef, updates);
+
+    if (ownerUid != null && ownerUid.isNotEmpty) {
+      final userGroupRef = _db
+          .collection(_colUsers)
+          .doc(ownerUid)
+          .collection(_colGroups)
+          .doc(groupId);
+      batch.delete(userGroupRef);
+    }
+
+    await batch.commit();
   }
 
   /// Write: Move Panel to target Group in system_status/current
@@ -247,12 +345,33 @@ class GroupFirestoreService {
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({super.key});
 
+  static const Color primaryGreen = Color(0xFF16A34A);
+  static const Color lightGreenBg = Color(0xFFDCFCE7);
+  static const Color bgLight = Color(0xFFF8FAFC);
+  static const Color cardBorderColor = Color(0xFFE2E8F0);
+  static const Color dividerColor = Color(0xFFF1F5F9);
+  static const Color textDark = Color(0xFF0F172A);
+  static const Color textMuted = Color(0xFF64748B);
+  static const Color textSubtle = Color(0xFF475569);
+  static const Color textBody = Color(0xFF334155);
+  static const Color editBlue = Color(0xFF0284C7);
+  static const Color activeGreen = Color(0xFF22C55E);
+  static const Color dragHandleColor = Color(0xFF94A3B8);
+  static const Color panelDragIconColor = Color(0xFFCBD5E1);
+
+  static const String _defaultSitePrefix = 'Site ';
+  static final RegExp _siteNameRegex = RegExp(
+    r'^\s*(?:site|group)\s*(\d+)\s*$',
+    caseSensitive: false,
+  );
+
   @override
   State<GroupsScreen> createState() => _GroupsScreenState();
 }
 
 class _GroupsScreenState extends State<GroupsScreen> {
-  late final Stream<DashboardData> _dashboardStream;
+  StreamSubscription<DocumentSnapshot>? _userSub;
+  List<String> _pairedDevices = [];
 
   bool _isHoveringDeleteZone = false;
   bool _isEditing = false;
@@ -262,7 +381,33 @@ class _GroupsScreenState extends State<GroupsScreen> {
   @override
   void initState() {
     super.initState();
-    _dashboardStream = GroupFirestoreService.getDashboardDataStream();
+    _listenToUserDoc();
+  }
+
+  @override
+  void dispose() {
+    _userSub?.cancel();
+    super.dispose();
+  }
+
+  void _listenToUserDoc() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _userSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((doc) {
+          if (doc.exists && mounted) {
+            final data = doc.data() ?? {};
+            final List<dynamic> paired =
+                data['pairedDevices'] as List<dynamic>? ?? [];
+            setState(() {
+              _pairedDevices = paired.map((e) => e.toString()).toList();
+            });
+          }
+        });
   }
 
   void _collapseAllGroups() {
@@ -270,14 +415,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
   }
 
   Future<void> _addNewGroup(List<PanelGroup> currentGroups) async {
-    final regExp = RegExp(
-      r'^\s*(?:site|group)\s*(\d+)\s*$',
-      caseSensitive: false,
-    );
     int maxNum = 0;
 
     for (final g in currentGroups) {
-      final match = regExp.firstMatch(g.name);
+      final match = GroupsScreen._siteNameRegex.firstMatch(g.name);
       if (match != null) {
         final numStr = match.group(1);
         if (numStr != null) {
@@ -290,7 +431,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
     }
 
     final nextNum = maxNum + 1;
-    await GroupFirestoreService.addGroup('Site $nextNum', currentGroups.length);
+    final user = FirebaseAuth.instance.currentUser;
+    await GroupFirestoreService.addGroup(
+      '${GroupsScreen._defaultSitePrefix}$nextNum',
+      currentGroups.length,
+      user?.uid,
+    );
   }
 
   Future<void> _showRenameDialog(PanelGroup group) async {
@@ -314,11 +460,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
             autofocus: true,
             decoration: InputDecoration(
               labelText: 'Site Name',
-              labelStyle: const TextStyle(color: Color(0xFF64748B)),
+              labelStyle: const TextStyle(color: GroupsScreen.textMuted),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(
-                  color: Color(0xFF16A34A),
+                  color: GroupsScreen.primaryGreen,
                   width: 1.5,
                 ),
               ),
@@ -332,12 +478,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text(
                 'Cancel',
-                style: TextStyle(color: Color(0xFF64748B)),
+                style: TextStyle(color: GroupsScreen.textMuted),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF16A34A),
+                backgroundColor: GroupsScreen.primaryGreen,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -359,7 +505,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
     if (!mounted) return;
 
     if (newName != null && newName.isNotEmpty) {
-      await GroupFirestoreService.renameGroup(group.id, newName);
+      await GroupFirestoreService.renameGroup(
+        group.id,
+        newName,
+        ownerUid: group.ownerUid,
+      );
     }
   }
 
@@ -384,11 +534,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
             autofocus: true,
             decoration: InputDecoration(
               labelText: 'Panel Name',
-              labelStyle: const TextStyle(color: Color(0xFF64748B)),
+              labelStyle: const TextStyle(color: GroupsScreen.textMuted),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: const BorderSide(
-                  color: Color(0xFF16A34A),
+                  color: GroupsScreen.primaryGreen,
                   width: 1.5,
                 ),
               ),
@@ -402,12 +552,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text(
                 'Cancel',
-                style: TextStyle(color: Color(0xFF64748B)),
+                style: TextStyle(color: GroupsScreen.textMuted),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF16A34A),
+                backgroundColor: GroupsScreen.primaryGreen,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -445,14 +595,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ),
         content: Text(
           'Are you sure you want to remove "${panel.name}"? Telemetry data for this panel will no longer be saved or accepted.',
-          style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+          style: const TextStyle(fontSize: 14, color: GroupsScreen.textSubtle),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text(
               'Cancel',
-              style: TextStyle(color: Color(0xFF64748B)),
+              style: TextStyle(color: GroupsScreen.textMuted),
             ),
           ),
           ElevatedButton(
@@ -492,12 +642,15 @@ class _GroupsScreenState extends State<GroupsScreen> {
           ),
           content: Text(
             '${group.name} contains ${group.panels.length} panel(s). Panels must remain assigned to a site. Please move all panels to another site before deleting this site.',
-            style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+            style: const TextStyle(
+              fontSize: 14,
+              color: GroupsScreen.textSubtle,
+            ),
           ),
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF16A34A),
+                backgroundColor: GroupsScreen.primaryGreen,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
@@ -523,14 +676,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
         ),
         content: Text(
           'Are you sure you want to delete "${group.name}"?',
-          style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
+          style: const TextStyle(fontSize: 14, color: GroupsScreen.textSubtle),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
             child: const Text(
               'Cancel',
-              style: TextStyle(color: Color(0xFF64748B)),
+              style: TextStyle(color: GroupsScreen.textMuted),
             ),
           ),
           ElevatedButton(
@@ -551,23 +704,34 @@ class _GroupsScreenState extends State<GroupsScreen> {
     if (!mounted) return;
 
     if (confirm == true) {
-      await GroupFirestoreService.deleteGroup(group.id, group.name);
+      await GroupFirestoreService.deleteGroup(
+        group.id,
+        group.name,
+        ownerUid: group.ownerUid,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: GroupsScreen.bgLight,
       body: SafeArea(
         child: StreamBuilder<DashboardData>(
-          stream: _dashboardStream,
+          stream: GroupFirestoreService.getDashboardDataStream(
+            currentUid,
+            _pairedDevices,
+          ),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
               return const Center(
                 child: CircularProgressIndicator.adaptive(
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF16A34A)),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    GroupsScreen.primaryGreen,
+                  ),
                 ),
               );
             }
@@ -582,7 +746,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
             return Column(
               children: [
-                // 1. STICKY HEADER BOX WITH BACK NAVIGATION
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
                   child: Container(
@@ -593,7 +756,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      border: Border.all(color: GroupsScreen.cardBorderColor),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.04),
@@ -616,12 +779,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
+                                  color: GroupsScreen.dividerColor,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(
                                   CupertinoIcons.chevron_left,
-                                  color: Color(0xFF0F172A),
+                                  color: GroupsScreen.textDark,
                                   size: 18,
                                 ),
                               ),
@@ -630,7 +793,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                             const Text(
                               'Panel Sites',
                               style: TextStyle(
-                                color: Color(0xFF0F172A),
+                                color: GroupsScreen.textDark,
                                 fontSize: 22,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: -0.5,
@@ -640,13 +803,13 @@ class _GroupsScreenState extends State<GroupsScreen> {
                         ),
                         Container(
                           decoration: const BoxDecoration(
-                            color: Color(0xFFDCFCE7),
+                            color: GroupsScreen.lightGreenBg,
                             shape: BoxShape.circle,
                           ),
                           child: IconButton(
                             icon: const Icon(
                               CupertinoIcons.add,
-                              color: Color(0xFF16A34A),
+                              color: GroupsScreen.primaryGreen,
                               size: 20,
                             ),
                             onPressed: () {
@@ -665,7 +828,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   ),
                 ),
 
-                // 2. SCROLLABLE PANELS CONTAINER
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -674,7 +836,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                        border: Border.all(color: GroupsScreen.cardBorderColor),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.04),
@@ -686,7 +848,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // SITES SECTION HEADER
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -709,8 +870,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
                                   _isEditing ? 'Done' : 'Edit',
                                   style: TextStyle(
                                     color: _isEditing
-                                        ? const Color(0xFF16A34A)
-                                        : const Color(0xFF64748B),
+                                        ? GroupsScreen.primaryGreen
+                                        : GroupsScreen.textMuted,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -720,7 +881,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           ),
                           const SizedBox(height: 12),
 
-                          // Empty State for Sites
                           if (groups.isEmpty)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 16.0),
@@ -733,7 +893,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               ),
                             ),
 
-                          // List of Sites
                           ListView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
@@ -749,13 +908,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
                           const SizedBox(height: 20),
                           const Divider(
-                            color: Color(0xFFF1F5F9),
+                            color: GroupsScreen.dividerColor,
                             height: 1,
                             thickness: 1,
                           ),
                           const SizedBox(height: 20),
 
-                          // UNASSIGNED PANELS SECTION
                           DragTarget<Object>(
                             onWillAcceptWithDetails: (details) {
                               if (details.data is GroupDragData &&
@@ -837,7 +995,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                                         ),
                                         const SizedBox(height: 12),
 
-                                        // Empty State for Unassigned
                                         if (ungroupedPanels.isEmpty)
                                           const Padding(
                                             padding: EdgeInsets.symmetric(
@@ -852,7 +1009,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                                             ),
                                           ),
 
-                                        // List of Unassigned Panels
                                         ListView.builder(
                                           shrinkWrap: true,
                                           physics:
@@ -884,22 +1040,22 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               icon: const Icon(
                                 CupertinoIcons.add,
                                 size: 16,
-                                color: Color(0xFF16A34A),
+                                color: GroupsScreen.primaryGreen,
                               ),
                               label: const Text(
                                 'add a site',
                                 style: TextStyle(
-                                  color: Color(0xFF16A34A),
+                                  color: GroupsScreen.primaryGreen,
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(
-                                  color: Color(0xFFDCFCE7),
+                                  color: GroupsScreen.lightGreenBg,
                                   width: 1.5,
                                 ),
-                                backgroundColor: const Color(0xFFF8FAFC),
+                                backgroundColor: GroupsScreen.bgLight,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -922,7 +1078,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
     );
   }
 
-  // --- Group Row Widget ---
   Widget _buildGroupRow(
     PanelGroup group,
     int groupIndex,
@@ -975,7 +1130,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           padding: EdgeInsets.all(4.0),
                           child: Icon(
                             CupertinoIcons.pencil,
-                            color: Color(0xFF0284C7),
+                            color: GroupsScreen.editBlue,
                             size: 18,
                           ),
                         ),
@@ -1015,7 +1170,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: const Color(0xFF0F172A),
+                                color: GroupsScreen.textDark,
                                 width: 1.5,
                               ),
                               boxShadow: const [
@@ -1030,7 +1185,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                               children: [
                                 const Icon(
                                   CupertinoIcons.bars,
-                                  color: Color(0xFF0F172A),
+                                  color: GroupsScreen.textDark,
                                   size: 18,
                                 ),
                                 const SizedBox(width: 8),
@@ -1047,26 +1202,25 @@ class _GroupsScreenState extends State<GroupsScreen> {
                         ),
                         childWhenDragging: const Icon(
                           CupertinoIcons.bars,
-                          color: Color(0xFFE2E8F0),
+                          color: GroupsScreen.cardBorderColor,
                           size: 18,
                         ),
                         child: const Icon(
                           CupertinoIcons.bars,
-                          color: Color(0xFF94A3B8),
+                          color: GroupsScreen.dragHandleColor,
                           size: 18,
                         ),
                       ),
                     ],
                     const SizedBox(width: 12),
 
-                    // Title & Status Counter
                     Expanded(
                       child: Row(
                         children: [
                           Text(
                             group.name,
                             style: const TextStyle(
-                              color: Color(0xFF0F172A),
+                              color: GroupsScreen.textDark,
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                               letterSpacing: -0.3,
@@ -1076,7 +1230,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                           Text(
                             '•  $activePanels of ${group.panels.length} active',
                             style: const TextStyle(
-                              color: Color(0xFF16A34A),
+                              color: GroupsScreen.primaryGreen,
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
                             ),
@@ -1085,13 +1239,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
                       ),
                     ),
 
-                    // Expand Chevron
                     AnimatedRotation(
                       turns: group.isExpanded ? 0.5 : 0,
                       duration: const Duration(milliseconds: 200),
                       child: const Icon(
                         CupertinoIcons.chevron_down,
-                        color: Color(0xFF64748B),
+                        color: GroupsScreen.textMuted,
                         size: 16,
                       ),
                     ),
@@ -1100,7 +1253,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
               ),
             ),
 
-            // Expanded Member Panels
             if (group.isExpanded)
               ListView.builder(
                 shrinkWrap: true,
@@ -1122,7 +1274,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
     );
   }
 
-  // --- Member Panel Row Widget ---
   Widget _buildMemberPanelTile({
     required PanelItem panel,
     required int index,
@@ -1145,7 +1296,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 padding: EdgeInsets.all(4.0),
                 child: Icon(
                   CupertinoIcons.pencil,
-                  color: Color(0xFF0284C7),
+                  color: GroupsScreen.editBlue,
                   size: 16,
                 ),
               ),
@@ -1165,7 +1316,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
             ),
             const SizedBox(width: 8),
           ] else ...[
-            // Member Panel Drag Handle
             Draggable<PanelDragData>(
               data: PanelDragData(
                 item: panel,
@@ -1188,7 +1338,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: const Color(0xFF16A34A),
+                      color: GroupsScreen.primaryGreen,
                       width: 1.5,
                     ),
                     boxShadow: const [
@@ -1200,7 +1350,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     children: [
                       const Icon(
                         CupertinoIcons.line_horizontal_3,
-                        color: Color(0xFF16A34A),
+                        color: GroupsScreen.primaryGreen,
                         size: 16,
                       ),
                       const SizedBox(width: 8),
@@ -1217,37 +1367,35 @@ class _GroupsScreenState extends State<GroupsScreen> {
               ),
               childWhenDragging: const Icon(
                 CupertinoIcons.line_horizontal_3,
-                color: Color(0xFFE2E8F0),
+                color: GroupsScreen.cardBorderColor,
                 size: 16,
               ),
               child: const Icon(
                 CupertinoIcons.line_horizontal_3,
-                color: Color(0xFFCBD5E1),
+                color: GroupsScreen.panelDragIconColor,
                 size: 16,
               ),
             ),
             const SizedBox(width: 10),
           ],
 
-          // Active Indicator Dot
           Container(
             width: 6,
             height: 6,
             decoration: BoxDecoration(
               color: panel.isActive
-                  ? const Color(0xFF22C55E)
+                  ? GroupsScreen.activeGreen
                   : Colors.grey.shade400,
               shape: BoxShape.circle,
             ),
           ),
           const SizedBox(width: 8),
 
-          // Panel Name
           Expanded(
             child: Text(
               panel.name,
               style: const TextStyle(
-                color: Color(0xFF334155),
+                color: GroupsScreen.textBody,
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
               ),
@@ -1258,7 +1406,3 @@ class _GroupsScreenState extends State<GroupsScreen> {
     );
   }
 }
-
-
-//finally done
-//firestore optimized

@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'profile_overview_screen.dart';
 import 'security_settings_screen.dart';
@@ -10,6 +11,201 @@ import 'feedback_screen.dart';
 import 'terms_and_privacy_screen.dart';
 import 'login_screen.dart';
 
+// ==================== CONSTANTS MANAGEMENT ====================
+abstract class _SettingsFirestoreKeys {
+  static const String collectionSystemStatus = 'system_status';
+  static const String docCurrent = 'current';
+  static const String fieldTariffRatePerKwh = 'tariff_rate_per_kwh';
+
+  static const String collectionUsers = 'users';
+  static const String fieldName = 'name';
+  static const String fieldEmail = 'email';
+  static const String fieldPhone = 'phone';
+}
+
+abstract class _SettingsSharedPreferencesKeys {
+  static const String prefMasterNotif = 'pref_master_notif';
+  static const String prefAlertNotif = 'pref_alert_notif';
+  static const String prefUpdateNotif = 'pref_update_notif';
+  static const String prefDeliveryMethods = 'pref_delivery_methods';
+  static const String prefQuietHours = 'pref_quiet_hours';
+}
+
+abstract class _SettingsStrings {
+  static const String defaultDeliveryPush = 'Push';
+  static const String defaultDeliveryEmail = 'Email';
+  static const String defaultDeliverySms = 'SMS';
+  static const String deliveryMethodNone = 'None';
+  static const List<String> deliveryOptions = ['Push', 'Email', 'SMS'];
+
+  static const String pageTitle = 'Settings';
+  static const String pageSubtitle = 'System & App Preferences';
+  static const String searchHint = 'Search settings...';
+
+  static const String sectionAccountProfile = 'Account & Profile';
+  static const String sectionTariffUtility = 'Tariff & Utility';
+  static const String sectionNotifications = 'Notifications';
+  static const String sectionStorageData = 'Storage & Data';
+  static const String sectionSupportSystem = 'Support & System';
+
+  static const String searchKeyAccount =
+      'Account Profile Security Passwords User Info';
+  static const String searchKeyTariff =
+      'Tariff Billing Rate Electricity Savings Cost kWh';
+  static const String searchKeyNotif =
+      'Notifications Alerts Push Email SMS Quiet Hours Do Not Disturb';
+  static const String searchKeyStorage = 'Data Storage Hardware Cache';
+  static const String searchKeySupport =
+      'Support Legal Terms Privacy Help Feedback Logout Delete';
+
+  static const String fallbackName = 'Set Name';
+  static const String fallbackEmail = 'No Email';
+  static const String fallbackPhone = 'No phone added';
+
+  static const String tileSecurityPassword = 'Security & Password';
+  static const String subtitleChangePassword = 'Change password';
+  static const String tileElectricityTariff = 'Electricity Tariff Rate';
+  static const String subtitleTariffSavings =
+      'Used for financial savings calculations';
+
+  static const String tileAllowNotifications = 'Allow Notifications';
+  static const String tileCriticalAlerts = 'Critical Alerts';
+  static const String tileSystemUpdates = 'System Updates';
+  static const String tileDeliveryMethod = 'Delivery Method';
+  static const String modalTitlePreferredDelivery = 'Preferred Delivery';
+  static const String tileDoNotDisturb = 'Do Not Disturb';
+  static const String subtitleMuteAlerts = 'Mute non-critical alerts';
+
+  static const String tileClearCache = 'Clear Storage Cache';
+  static const String subtitleCacheSize = 'Local Cache: 42.8 MB';
+  static const String cacheClearedMessage = 'Cache cleared successfully!';
+
+  static const String tileFeedback = 'Feedback';
+  static const String tileTermsPrivacy = 'Terms & Privacy';
+  static const String tileAppVersion = 'App Version';
+  static const String appVersionString = 'v1.0.4 (Build 42)';
+
+  static const String buttonLogOut = 'Log Out';
+  static const String buttonDelete = 'Delete';
+  static const String buttonCancel = 'Cancel';
+  static const String buttonSave = 'Save';
+  static const String buttonDone = 'Done';
+  static const String buttonOk = 'OK';
+  static const String buttonClear = 'Clear';
+
+  static const String dialogNotifPermissionTitle =
+      'Notification Access Required';
+  static const String dialogNotifPermissionContent =
+      'Notifications are disabled in your system settings. To receive critical panel alerts and energy system updates, please allow notifications for this app in your device settings.';
+
+  static const String dialogTariffTitle = 'Modify Electricity Tariff Rate';
+  static const String dialogTariffContent =
+      'Set your utility provider\'s rate per kWh (PHP) to accurately compute estimated savings.';
+  static const String labelTariffInput = 'Tariff Rate (₱/kWh)';
+
+  static const String dialogClearCacheTitle = 'Clear Local Cache?';
+  static const String dialogClearCacheContent =
+      'This will free up local storage space.';
+
+  static const String dialogLogoutTitle = 'Log Out';
+  static const String dialogLogoutContent = 'Are you sure you want to log out?';
+
+  static const String dialogDeleteTitle = 'Delete Account';
+  static const String dialogDeleteContent =
+      'Permanently remove all data and linked hardware?';
+
+  static const String errRequiresRecentLogin =
+      'Please log out and log back in before deleting your account.';
+  static const String errDeleteAccountPrefix = 'Failed to delete account: ';
+}
+
+abstract class _SettingsColors {
+  static const Color darkGreen = Color(0xFF092508);
+  static const Color midGreen = Color(0xFF20831B);
+  static const Color borderGreen = Color(0xFF20341E);
+  static const Color lightGreenBg = Color(0xFFE8F5E9);
+  static const Color snackbarCheckmark = Color(0xFF00FF22);
+  static const Color pageBg = Colors.white;
+  static const Color cardBg = Colors.white;
+
+  static const Color textBlack = Colors.black;
+  static const Color textBlack87 = Colors.black87;
+  static const Color textWhite = Colors.white;
+  static const Color textWhite70 = Colors.white70;
+  static const Color textGrey = Colors.grey;
+
+  static final Color shadowColor = Colors.grey.withValues(alpha: 0.2);
+  static final Color dividerColor = Colors.grey.withValues(alpha: 0.2);
+  static final Color sheetHandleColor = Colors.grey.shade300;
+
+  static final Color deleteBg = Colors.red.shade50;
+  static final Color deleteBorder = Colors.red.shade200;
+  static final Color deleteText = Colors.red.shade700;
+  static final Color deleteButtonBg = Colors.red.shade600;
+  static final Color deleteSnackbarBg = Colors.red.shade900;
+}
+
+abstract class _SettingsDimensions {
+  static const double defaultTariffRate = 12.0;
+
+  static const double paddingMicro = 4.0;
+  static const double paddingSmall = 8.0;
+  static const double paddingMedium = 10.0;
+  static const double paddingStandard = 14.0;
+  static const double paddingLarge = 16.0;
+  static const double paddingXLarge = 20.0;
+  static const double paddingXXLarge = 24.0;
+  static const double paddingHeaderBottom = 25.0;
+  static const double paddingHeaderTop = 45.0;
+
+  static const double spacingSmall = 8.0;
+  static const double spacingMedium = 10.0;
+  static const double spacingLarge = 12.0;
+  static const double spacingXLarge = 16.0;
+  static const double spacingSectionTop = 18.0;
+  static const double spacingHeaderTitle = 20.0;
+  static const double spacingXXLarge = 32.0;
+
+  static const double fontSizeBadge = 11.0;
+  static const double fontSizeSub = 11.0;
+  static const double fontSizeInputLabel = 12.0;
+  static const double fontSizeDialogContent = 13.0;
+  static const double fontSizeBody = 14.0;
+  static const double fontSizeChevron = 16.0;
+  static const double fontSizeName = 17.0;
+  static const double fontSizeDialogTitle = 18.0;
+  static const double fontSizeModalTitle = 20.0;
+  static const double fontSizeSectionHeader = 22.0;
+  static const double fontSizePageTitle = 32.0;
+
+  static const double buttonHeightStandard = 48.0;
+  static const double backButtonSize = 40.0;
+  static const double iconSizeSmall = 18.0;
+  static const double iconSizeStandard = 20.0;
+  static const double sheetHandleWidth = 40.0;
+  static const double sheetHandleHeight = 5.0;
+
+  static const double borderRadiusSmall = 10.0;
+  static const double borderRadiusCard = 12.0;
+  static const double borderRadiusTile = 14.0;
+  static const double borderRadiusBadge = 16.0;
+  static const double borderRadiusHeader = 20.0;
+  static const double borderRadiusDialog = 20.0;
+  static const double borderRadiusSheet = 28.0;
+
+  static const double borderWidthThin = 1.0;
+  static const double borderWidthStandard = 1.5;
+  static const double shadowSpread = 2.0;
+  static const double shadowBlurCard = 3.0;
+  static const double shadowBlurSearch = 4.0;
+  static const Offset shadowOffset = Offset(0, 2);
+
+  static const double textLineHeightDialog = 1.4;
+  static const double gradientStopTop = 0.38;
+  static const double gradientStopBottom = 1.0;
+}
+
+// ==================== SETTINGS SCREEN WIDGET ====================
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -22,21 +218,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _searchQuery = '';
 
   // Tariff Rate State
-  double _tariffRate = 12.0;
+  double _tariffRate = _SettingsDimensions.defaultTariffRate;
 
   // Notifications States (Stored locally via SharedPreferences and synced to Firestore)
   bool _masterNotifications = true;
   bool _alertNotifications = true;
   bool _updateNotifications = true;
-  Set<String> _deliveryMethods = {'Push'};
+  Set<String> _deliveryMethods = {_SettingsStrings.defaultDeliveryPush};
   bool _quietHours = false;
-
-  // --- DASHBOARD THEME COLOR CONSTANTS ---
-  static const Color darkGreen = Color(0xFF092508);
-  static const Color midGreen = Color(0xFF20831B);
-  static const Color borderGreen = Color(0xFF20341E);
-  static const Color lightGreenBg = Color(0xFFE8F5E9);
-  static const Color pageBg = Colors.white;
 
   @override
   void initState() {
@@ -52,47 +241,168 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Fetch initial tariff rate & preferences from Firestore
     try {
       final statusDoc = await FirebaseFirestore.instance
-          .collection('system_status')
-          .doc('current')
+          .collection(_SettingsFirestoreKeys.collectionSystemStatus)
+          .doc(_SettingsFirestoreKeys.docCurrent)
           .get();
       if (statusDoc.exists && statusDoc.data() != null) {
         final data = statusDoc.data()!;
-        if (data.containsKey('tariff_rate_per_kwh')) {
-          _tariffRate = (data['tariff_rate_per_kwh'] as num).toDouble();
+        if (data.containsKey(_SettingsFirestoreKeys.fieldTariffRatePerKwh)) {
+          _tariffRate =
+              (data[_SettingsFirestoreKeys.fieldTariffRatePerKwh] as num)
+                  .toDouble();
         }
       }
 
       if (currentUser != null) {
         final userDoc = await FirebaseFirestore.instance
-            .collection('users')
+            .collection(_SettingsFirestoreKeys.collectionUsers)
             .doc(currentUser.uid)
             .get();
         if (userDoc.exists && userDoc.data() != null) {
           final uData = userDoc.data()!;
-          if (uData.containsKey('pref_master_notif')) {
-            _masterNotifications = uData['pref_master_notif'] as bool;
+          if (uData.containsKey(
+            _SettingsSharedPreferencesKeys.prefMasterNotif,
+          )) {
+            _masterNotifications =
+                uData[_SettingsSharedPreferencesKeys.prefMasterNotif] as bool;
           }
-          if (uData.containsKey('pref_alert_notif')) {
-            _alertNotifications = uData['pref_alert_notif'] as bool;
+          if (uData.containsKey(
+            _SettingsSharedPreferencesKeys.prefAlertNotif,
+          )) {
+            _alertNotifications =
+                uData[_SettingsSharedPreferencesKeys.prefAlertNotif] as bool;
           }
-          if (uData.containsKey('pref_update_notif')) {
-            _updateNotifications = uData['pref_update_notif'] as bool;
+          if (uData.containsKey(
+            _SettingsSharedPreferencesKeys.prefUpdateNotif,
+          )) {
+            _updateNotifications =
+                uData[_SettingsSharedPreferencesKeys.prefUpdateNotif] as bool;
           }
         }
       }
+
+      // Check real system OS notification permission status
+      try {
+        final settings = await FirebaseMessaging.instance
+            .getNotificationSettings();
+        if (settings.authorizationStatus == AuthorizationStatus.denied) {
+          _masterNotifications = false;
+        }
+      } catch (_) {}
     } catch (_) {}
 
+    if (!mounted) return;
     setState(() {
       _masterNotifications =
-          prefs.getBool('pref_master_notif') ?? _masterNotifications;
+          prefs.getBool(_SettingsSharedPreferencesKeys.prefMasterNotif) ??
+          _masterNotifications;
       _alertNotifications =
-          prefs.getBool('pref_alert_notif') ?? _alertNotifications;
+          prefs.getBool(_SettingsSharedPreferencesKeys.prefAlertNotif) ??
+          _alertNotifications;
       _updateNotifications =
-          prefs.getBool('pref_update_notif') ?? _updateNotifications;
+          prefs.getBool(_SettingsSharedPreferencesKeys.prefUpdateNotif) ??
+          _updateNotifications;
       _deliveryMethods =
-          prefs.getStringList('pref_delivery_methods')?.toSet() ?? {'Push'};
-      _quietHours = prefs.getBool('pref_quiet_hours') ?? false;
+          prefs
+              .getStringList(_SettingsSharedPreferencesKeys.prefDeliveryMethods)
+              ?.toSet() ??
+          {_SettingsStrings.defaultDeliveryPush};
+      _quietHours =
+          prefs.getBool(_SettingsSharedPreferencesKeys.prefQuietHours) ?? false;
     });
+  }
+
+  // --- SYSTEM NOTIFICATION PERMISSION HANDLER ---
+  Future<void> _toggleMasterNotifications(bool enable) async {
+    if (enable) {
+      try {
+        final settings = await FirebaseMessaging.instance.requestPermission(
+          alert: true,
+          announcement: false,
+          badge: true,
+          carPlay: false,
+          criticalAlert: true,
+          provisional: false,
+          sound: true,
+        );
+
+        if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+            settings.authorizationStatus == AuthorizationStatus.provisional) {
+          setState(() => _masterNotifications = true);
+          await _saveBoolSetting(
+            _SettingsSharedPreferencesKeys.prefMasterNotif,
+            true,
+          );
+        } else {
+          setState(() => _masterNotifications = false);
+          await _saveBoolSetting(
+            _SettingsSharedPreferencesKeys.prefMasterNotif,
+            false,
+          );
+          if (mounted) {
+            _showPermissionDeniedDialog();
+          }
+        }
+      } catch (e) {
+        // Fallback if platform messaging isn't active in simulator
+        setState(() => _masterNotifications = true);
+        await _saveBoolSetting(
+          _SettingsSharedPreferencesKeys.prefMasterNotif,
+          true,
+        );
+      }
+    } else {
+      setState(() => _masterNotifications = false);
+      await _saveBoolSetting(
+        _SettingsSharedPreferencesKeys.prefMasterNotif,
+        false,
+      );
+    }
+  }
+
+  void _showPermissionDeniedDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: _SettingsColors.cardBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+            _SettingsDimensions.borderRadiusDialog,
+          ),
+        ),
+        title: const Text(
+          _SettingsStrings.dialogNotifPermissionTitle,
+          style: TextStyle(
+            color: _SettingsColors.darkGreen,
+            fontWeight: FontWeight.bold,
+            fontSize: _SettingsDimensions.fontSizeDialogTitle,
+          ),
+        ),
+        content: const Text(
+          _SettingsStrings.dialogNotifPermissionContent,
+          style: TextStyle(
+            color: _SettingsColors.textBlack87,
+            fontSize: _SettingsDimensions.fontSizeDialogContent,
+            height: _SettingsDimensions.textLineHeightDialog,
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _SettingsColors.darkGreen,
+              foregroundColor: _SettingsColors.textWhite,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(
+                  _SettingsDimensions.borderRadiusCard,
+                ),
+              ),
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text(_SettingsStrings.buttonOk),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _saveBoolSetting(String key, bool value) async {
@@ -103,7 +413,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (currentUser != null) {
       try {
         await FirebaseFirestore.instance
-            .collection('users')
+            .collection(_SettingsFirestoreKeys.collectionUsers)
             .doc(currentUser.uid)
             .set({key: value}, SetOptions(merge: true));
       } catch (_) {}
@@ -118,7 +428,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (currentUser != null) {
       try {
         await FirebaseFirestore.instance
-            .collection('users')
+            .collection(_SettingsFirestoreKeys.collectionUsers)
             .doc(currentUser.uid)
             .set({key: value}, SetOptions(merge: true));
       } catch (_) {}
@@ -134,14 +444,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _SettingsColors.cardBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+            _SettingsDimensions.borderRadiusDialog,
+          ),
+        ),
         title: const Text(
-          'Modify Electricity Tariff Rate',
+          _SettingsStrings.dialogTariffTitle,
           style: TextStyle(
-            color: darkGreen,
+            color: _SettingsColors.darkGreen,
             fontWeight: FontWeight.bold,
-            fontSize: 18,
+            fontSize: _SettingsDimensions.fontSizeDialogTitle,
           ),
         ),
         content: Column(
@@ -149,18 +463,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Set your utility provider\'s rate per kWh (PHP) to accurately compute estimated savings.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              _SettingsStrings.dialogTariffContent,
+              style: TextStyle(
+                fontSize: _SettingsDimensions.fontSizeInputLabel,
+                color: _SettingsColors.textGrey,
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: _SettingsDimensions.spacingXLarge),
             TextField(
               controller: tariffController,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
               decoration: const InputDecoration(
-                labelText: 'Tariff Rate (₱/kWh)',
-                prefixIcon: Icon(CupertinoIcons.money_dollar, color: midGreen),
+                labelText: _SettingsStrings.labelTariffInput,
+                prefixIcon: Icon(
+                  CupertinoIcons.money_dollar,
+                  color: _SettingsColors.midGreen,
+                ),
               ),
             ),
           ],
@@ -168,14 +488,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            child: const Text(
+              _SettingsStrings.buttonCancel,
+              style: TextStyle(color: _SettingsColors.textGrey),
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: darkGreen,
-              foregroundColor: Colors.white,
+              backgroundColor: _SettingsColors.darkGreen,
+              foregroundColor: _SettingsColors.textWhite,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(
+                  _SettingsDimensions.borderRadiusCard,
+                ),
               ),
             ),
             onPressed: () async {
@@ -188,16 +513,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 });
                 try {
                   await FirebaseFirestore.instance
-                      .collection('system_status')
-                      .doc('current')
+                      .collection(_SettingsFirestoreKeys.collectionSystemStatus)
+                      .doc(_SettingsFirestoreKeys.docCurrent)
                       .set({
-                        'tariff_rate_per_kwh': newRate,
+                        _SettingsFirestoreKeys.fieldTariffRatePerKwh: newRate,
                       }, SetOptions(merge: true));
                 } catch (_) {}
               }
               if (context.mounted) Navigator.pop(context);
             },
-            child: const Text('Save'),
+            child: const Text(_SettingsStrings.buttonSave),
           ),
         ],
       ),
@@ -224,7 +549,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         // Delete Firestore user document first
         await FirebaseFirestore.instance
-            .collection('users')
+            .collection(_SettingsFirestoreKeys.collectionUsers)
             .doc(currentUser.uid)
             .delete();
 
@@ -239,20 +564,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
       final errorMessage = e.code == 'requires-recent-login'
-          ? 'Please log out and log back in before deleting your account.'
-          : 'Failed to delete account: ${e.message}';
+          ? _SettingsStrings.errRequiresRecentLogin
+          : '${_SettingsStrings.errDeleteAccountPrefix}${e.message}';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(errorMessage),
-          backgroundColor: Colors.red.shade900,
+          backgroundColor: _SettingsColors.deleteSnackbarBg,
         ),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to delete account: ${e.toString()}'),
-          backgroundColor: Colors.red.shade900,
+          content: Text(
+            '${_SettingsStrings.errDeleteAccountPrefix}${e.toString()}',
+          ),
+          backgroundColor: _SettingsColors.deleteSnackbarBg,
         ),
       );
     }
@@ -268,36 +595,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: _SettingsColors.cardBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+            _SettingsDimensions.borderRadiusDialog,
+          ),
+        ),
         title: Text(
           title,
           style: const TextStyle(
-            color: darkGreen,
+            color: _SettingsColors.darkGreen,
             fontWeight: FontWeight.bold,
-            fontSize: 18,
+            fontSize: _SettingsDimensions.fontSizeDialogTitle,
           ),
         ),
         content: Text(
           content,
-          style: const TextStyle(color: Colors.black87, fontSize: 14),
+          style: const TextStyle(
+            color: _SettingsColors.textBlack87,
+            fontSize: _SettingsDimensions.fontSizeBody,
+          ),
         ),
-        actionsPadding: const EdgeInsets.all(16),
+        actionsPadding: const EdgeInsets.all(_SettingsDimensions.paddingLarge),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text(
-              'Cancel',
-              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600),
+              _SettingsStrings.buttonCancel,
+              style: TextStyle(
+                color: _SettingsColors.textGrey,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: isDestructive ? Colors.red.shade600 : darkGreen,
-              foregroundColor: Colors.white,
+              backgroundColor: isDestructive
+                  ? _SettingsColors.deleteButtonBg
+                  : _SettingsColors.darkGreen,
+              foregroundColor: _SettingsColors.textWhite,
               elevation: 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(
+                  _SettingsDimensions.borderRadiusCard,
+                ),
               ),
             ),
             onPressed: () {
@@ -329,34 +670,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setModalState) => SafeArea(
           child: Material(
-            color: Colors.white,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            color: _SettingsColors.cardBg,
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(_SettingsDimensions.borderRadiusSheet),
+            ),
             child: Padding(
-              padding: const EdgeInsets.all(24.0),
+              padding: const EdgeInsets.all(_SettingsDimensions.paddingXXLarge),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Center(
                     child: Container(
-                      width: 40,
-                      height: 5,
-                      margin: const EdgeInsets.only(bottom: 20),
+                      width: _SettingsDimensions.sheetHandleWidth,
+                      height: _SettingsDimensions.sheetHandleHeight,
+                      margin: const EdgeInsets.only(
+                        bottom: _SettingsDimensions.spacingHeaderTitle,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(10),
+                        color: _SettingsColors.sheetHandleColor,
+                        borderRadius: BorderRadius.circular(
+                          _SettingsDimensions.borderRadiusSmall,
+                        ),
                       ),
                     ),
                   ),
                   Text(
                     title,
                     style: const TextStyle(
-                      fontSize: 20,
+                      fontSize: _SettingsDimensions.fontSizeModalTitle,
                       fontWeight: FontWeight.bold,
-                      color: darkGreen,
+                      color: _SettingsColors.darkGreen,
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: _SettingsDimensions.spacingXLarge),
                   Flexible(
                     child: SingleChildScrollView(
                       child: Column(
@@ -364,16 +711,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           for (final option in options) ...[
                             Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
+                              padding: const EdgeInsets.only(
+                                bottom: _SettingsDimensions.spacingSmall,
+                              ),
                               child: Material(
                                 color: tempSelections.contains(option)
-                                    ? lightGreenBg
+                                    ? _SettingsColors.lightGreenBg
                                     : Colors.transparent,
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(
+                                  _SettingsDimensions.borderRadiusTile,
+                                ),
                                 child: CheckboxListTile(
-                                  activeColor: midGreen,
+                                  activeColor: _SettingsColors.midGreen,
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
+                                    borderRadius: BorderRadius.circular(
+                                      _SettingsDimensions.borderRadiusTile,
+                                    ),
                                   ),
                                   title: Text(
                                     option,
@@ -383,8 +736,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           ? FontWeight.bold
                                           : FontWeight.normal,
                                       color: tempSelections.contains(option)
-                                          ? darkGreen
-                                          : Colors.black87,
+                                          ? _SettingsColors.darkGreen
+                                          : _SettingsColors.textBlack87,
                                     ),
                                   ),
                                   value: tempSelections.contains(option),
@@ -405,16 +758,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: _SettingsDimensions.spacingXLarge),
                   SizedBox(
                     width: double.infinity,
-                    height: 48,
+                    height: _SettingsDimensions.buttonHeightStandard,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: darkGreen,
-                        foregroundColor: Colors.white,
+                        backgroundColor: _SettingsColors.darkGreen,
+                        foregroundColor: _SettingsColors.textWhite,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(
+                            _SettingsDimensions.borderRadiusCard,
+                          ),
                         ),
                       ),
                       onPressed: () {
@@ -422,7 +777,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Navigator.pop(context);
                       },
                       child: const Text(
-                        'Done',
+                        _SettingsStrings.buttonDone,
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -444,7 +799,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final String deliveryMethodText = _deliveryMethods.isEmpty
-        ? 'None'
+        ? _SettingsStrings.deliveryMethodNone
         : _deliveryMethods.join(', ');
 
     return StreamBuilder<User?>(
@@ -454,61 +809,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
             authSnapshot.data ?? FirebaseAuth.instance.currentUser;
 
         return Scaffold(
-          backgroundColor: pageBg,
+          backgroundColor: _SettingsColors.pageBg,
           body: ListView(
             padding: EdgeInsets.zero,
             children: [
               _buildTopHeader(),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: _SettingsDimensions.paddingLarge,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 16),
+                    const SizedBox(height: _SettingsDimensions.spacingXLarge),
                     Container(
-                      margin: const EdgeInsets.only(bottom: 10),
+                      margin: const EdgeInsets.only(
+                        bottom: _SettingsDimensions.borderRadiusSmall,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
+                        color: _SettingsColors.cardBg,
+                        borderRadius: BorderRadius.circular(
+                          _SettingsDimensions.borderRadiusBadge,
+                        ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.grey.withValues(alpha: 0.2),
-                            spreadRadius: 2,
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
+                            color: _SettingsColors.shadowColor,
+                            spreadRadius: _SettingsDimensions.shadowSpread,
+                            blurRadius: _SettingsDimensions.shadowBlurSearch,
+                            offset: _SettingsDimensions.shadowOffset,
                           ),
                         ],
                       ),
                       child: TextField(
                         decoration: const InputDecoration(
-                          hintText: 'Search settings...',
+                          hintText: _SettingsStrings.searchHint,
                           hintStyle: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey,
+                            fontSize: _SettingsDimensions.fontSizeBody,
+                            color: _SettingsColors.textGrey,
                           ),
                           prefixIcon: Icon(
                             CupertinoIcons.search,
-                            color: midGreen,
-                            size: 20,
+                            color: _SettingsColors.midGreen,
+                            size: _SettingsDimensions.iconSizeStandard,
                           ),
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                          contentPadding: EdgeInsets.symmetric(
+                            vertical: _SettingsDimensions.paddingStandard,
+                          ),
                         ),
                         onChanged: (val) => setState(() => _searchQuery = val),
                       ),
                     ),
 
                     // 1. ACCOUNT & PROFILE (Cloud Firestore-backed)
-                    if (_matchesSearch(
-                      'Account Profile Security Passwords User Info',
-                    )) ...[
-                      _buildSectionHeader('Account & Profile'),
+                    if (_matchesSearch(_SettingsStrings.searchKeyAccount)) ...[
+                      _buildSectionHeader(
+                        _SettingsStrings.sectionAccountProfile,
+                      ),
                       _buildFloatingCard(
                         children: [
                           StreamBuilder<DocumentSnapshot>(
                             stream: currentUser != null
                                 ? FirebaseFirestore.instance
-                                      .collection('users')
+                                      .collection(
+                                        _SettingsFirestoreKeys.collectionUsers,
+                                      )
                                       .doc(currentUser.uid)
                                       .snapshots(includeMetadataChanges: false)
                                 : null,
@@ -518,52 +883,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       as Map<String, dynamic>?;
 
                               final String name =
-                                  data?['name'] ??
+                                  data?[_SettingsFirestoreKeys.fieldName] ??
                                   currentUser?.displayName ??
-                                  'Set Name';
+                                  _SettingsStrings.fallbackName;
                               final String email =
-                                  data?['email'] ??
+                                  data?[_SettingsFirestoreKeys.fieldEmail] ??
                                   currentUser?.email ??
-                                  'No Email';
+                                  _SettingsStrings.fallbackEmail;
                               final String phone =
-                                  data?['phone'] ?? 'No phone added';
+                                  data?[_SettingsFirestoreKeys.fieldPhone] ??
+                                  _SettingsStrings.fallbackPhone;
 
                               return ListTile(
                                 contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 4,
+                                  horizontal: _SettingsDimensions.paddingLarge,
+                                  vertical: _SettingsDimensions.paddingMicro,
                                 ),
                                 leading: Container(
-                                  padding: const EdgeInsets.all(10),
+                                  padding: const EdgeInsets.all(
+                                    _SettingsDimensions.paddingMedium,
+                                  ),
                                   decoration: const BoxDecoration(
-                                    color: lightGreenBg,
+                                    color: _SettingsColors.lightGreenBg,
                                     shape: BoxShape.circle,
                                   ),
                                   child: const Icon(
                                     CupertinoIcons.person_fill,
-                                    color: midGreen,
-                                    size: 20,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
                                   ),
                                 ),
                                 title: Text(
                                   name,
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 17,
-                                    color: Colors.black,
+                                    fontSize: _SettingsDimensions.fontSizeName,
+                                    color: _SettingsColors.textBlack,
                                   ),
                                 ),
                                 subtitle: Text(
                                   '$email • $phone',
                                   style: const TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey,
+                                    fontSize: _SettingsDimensions.fontSizeSub,
+                                    color: _SettingsColors.textGrey,
                                   ),
                                 ),
                                 trailing: const Icon(
                                   CupertinoIcons.chevron_right,
-                                  size: 16,
-                                  color: Colors.grey,
+                                  size: _SettingsDimensions.fontSizeChevron,
+                                  color: _SettingsColors.textGrey,
                                 ),
                                 onTap: () {
                                   Navigator.push(
@@ -581,27 +949,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ListTile(
                             leading: const Icon(
                               CupertinoIcons.shield_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Security & Password',
+                              _SettingsStrings.tileSecurityPassword,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             subtitle: const Text(
-                              'Change password',
+                              _SettingsStrings.subtitleChangePassword,
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
+                                fontSize: _SettingsDimensions.fontSizeSub,
+                                color: _SettingsColors.textGrey,
                               ),
                             ),
                             trailing: const Icon(
                               CupertinoIcons.chevron_right,
-                              size: 16,
-                              color: Colors.grey,
+                              size: _SettingsDimensions.fontSizeChevron,
+                              color: _SettingsColors.textGrey,
                             ),
                             onTap: () {
                               Navigator.push(
@@ -618,30 +986,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
 
                     // 2. TARIFF & BILLING
-                    if (_matchesSearch(
-                      'Tariff Billing Rate Electricity Savings Cost kWh',
-                    )) ...[
-                      _buildSectionHeader('Tariff & Utility'),
+                    if (_matchesSearch(_SettingsStrings.searchKeyTariff)) ...[
+                      _buildSectionHeader(
+                        _SettingsStrings.sectionTariffUtility,
+                      ),
                       _buildFloatingCard(
                         children: [
                           ListTile(
                             leading: const Icon(
                               CupertinoIcons.money_dollar_circle_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Electricity Tariff Rate',
+                              _SettingsStrings.tileElectricityTariff,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             subtitle: const Text(
-                              'Used for financial savings calculations',
+                              _SettingsStrings.subtitleTariffSavings,
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
+                                fontSize: _SettingsDimensions.fontSizeSub,
+                                color: _SettingsColors.textGrey,
                               ),
                             ),
                             trailing: _buildValueBadge(
@@ -654,88 +1022,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
 
                     // 3. NOTIFICATIONS & ALERTS (SharedPreferences & Firestore)
-                    if (_matchesSearch(
-                      'Notifications Alerts Push Email SMS Quiet Hours Do Not Disturb',
-                    )) ...[
-                      _buildSectionHeader('Notifications'),
+                    if (_matchesSearch(_SettingsStrings.searchKeyNotif)) ...[
+                      _buildSectionHeader(
+                        _SettingsStrings.sectionNotifications,
+                      ),
                       _buildFloatingCard(
                         children: [
                           SwitchListTile(
-                            activeThumbColor: midGreen,
+                            activeThumbColor: _SettingsColors.midGreen,
                             secondary: const Icon(
                               CupertinoIcons.bell_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Allow Notifications',
+                              _SettingsStrings.tileAllowNotifications,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             value: _masterNotifications,
-                            onChanged: (val) {
-                              setState(() => _masterNotifications = val);
-                              _saveBoolSetting('pref_master_notif', val);
-                            },
+                            onChanged: (val) => _toggleMasterNotifications(val),
                           ),
                           if (_masterNotifications) ...[
                             _buildDivider(),
                             SwitchListTile(
-                              activeThumbColor: midGreen,
+                              activeThumbColor: _SettingsColors.midGreen,
                               title: const Text(
-                                'Critical Alerts',
+                                _SettingsStrings.tileCriticalAlerts,
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: _SettingsDimensions.fontSizeBody,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               value: _alertNotifications,
                               onChanged: (val) {
                                 setState(() => _alertNotifications = val);
-                                _saveBoolSetting('pref_alert_notif', val);
+                                _saveBoolSetting(
+                                  _SettingsSharedPreferencesKeys.prefAlertNotif,
+                                  val,
+                                );
                               },
                             ),
                             _buildDivider(),
                             SwitchListTile(
-                              activeThumbColor: midGreen,
+                              activeThumbColor: _SettingsColors.midGreen,
                               title: const Text(
-                                'System Updates',
+                                _SettingsStrings.tileSystemUpdates,
                                 style: TextStyle(
-                                  fontSize: 14,
+                                  fontSize: _SettingsDimensions.fontSizeBody,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                               value: _updateNotifications,
                               onChanged: (val) {
                                 setState(() => _updateNotifications = val);
-                                _saveBoolSetting('pref_update_notif', val);
+                                _saveBoolSetting(
+                                  _SettingsSharedPreferencesKeys
+                                      .prefUpdateNotif,
+                                  val,
+                                );
                               },
                             ),
                             _buildDivider(),
                             ListTile(
                               leading: const Icon(
                                 CupertinoIcons.paperplane_fill,
-                                color: midGreen,
-                                size: 20,
+                                color: _SettingsColors.midGreen,
+                                size: _SettingsDimensions.iconSizeStandard,
                               ),
                               title: const Text(
-                                'Delivery Method',
+                                _SettingsStrings.tileDeliveryMethod,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+                                  fontSize: _SettingsDimensions.fontSizeBody,
                                 ),
                               ),
                               trailing: _buildValueBadge(deliveryMethodText),
                               onTap: () => _showMultiSelectModal(
-                                title: 'Preferred Delivery',
-                                options: const ['Push', 'Email', 'SMS'],
+                                title: _SettingsStrings
+                                    .modalTitlePreferredDelivery,
+                                options: _SettingsStrings.deliveryOptions,
                                 currentSelections: _deliveryMethods,
                                 onChanged: (selected) {
                                   setState(() => _deliveryMethods = selected);
                                   _saveListSetting(
-                                    'pref_delivery_methods',
+                                    _SettingsSharedPreferencesKeys
+                                        .prefDeliveryMethods,
                                     selected.toList(),
                                   );
                                 },
@@ -744,30 +1118,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ],
                           _buildDivider(),
                           SwitchListTile(
-                            activeThumbColor: midGreen,
+                            activeThumbColor: _SettingsColors.midGreen,
                             secondary: const Icon(
                               CupertinoIcons.moon_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Do Not Disturb',
+                              _SettingsStrings.tileDoNotDisturb,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             subtitle: const Text(
-                              'Mute non-critical alerts',
+                              _SettingsStrings.subtitleMuteAlerts,
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
+                                fontSize: _SettingsDimensions.fontSizeSub,
+                                color: _SettingsColors.textGrey,
                               ),
                             ),
                             value: _quietHours,
                             onChanged: (val) {
                               setState(() => _quietHours = val);
-                              _saveBoolSetting('pref_quiet_hours', val);
+                              _saveBoolSetting(
+                                _SettingsSharedPreferencesKeys.prefQuietHours,
+                                val,
+                              );
                             },
                           ),
                         ],
@@ -775,51 +1152,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
 
                     // 4. DATA & STORAGE
-                    if (_matchesSearch('Data Storage Hardware Cache')) ...[
-                      _buildSectionHeader('Storage & Data'),
+                    if (_matchesSearch(_SettingsStrings.searchKeyStorage)) ...[
+                      _buildSectionHeader(_SettingsStrings.sectionStorageData),
                       _buildFloatingCard(
                         children: [
                           ListTile(
                             leading: const Icon(
                               CupertinoIcons.trash_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Clear Storage Cache',
+                              _SettingsStrings.tileClearCache,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             subtitle: const Text(
-                              'Local Cache: 42.8 MB',
+                              _SettingsStrings.subtitleCacheSize,
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
+                                fontSize: _SettingsDimensions.fontSizeSub,
+                                color: _SettingsColors.textGrey,
                               ),
                             ),
                             onTap: () => _showConfirmationDialog(
-                              title: 'Clear Local Cache?',
-                              content: 'This will free up local storage space.',
-                              confirmText: 'Clear',
+                              title: _SettingsStrings.dialogClearCacheTitle,
+                              content: _SettingsStrings.dialogClearCacheContent,
+                              confirmText: _SettingsStrings.buttonClear,
                               onConfirm: () =>
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       behavior: SnackBarBehavior.floating,
-                                      backgroundColor: darkGreen,
+                                      backgroundColor:
+                                          _SettingsColors.darkGreen,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
+                                        borderRadius: BorderRadius.circular(
+                                          _SettingsDimensions.borderRadiusSmall,
+                                        ),
                                       ),
                                       content: const Row(
                                         children: [
                                           Icon(
                                             CupertinoIcons
                                                 .checkmark_circle_fill,
-                                            color: Color(0xFF00FF22),
+                                            color: _SettingsColors
+                                                .snackbarCheckmark,
                                           ),
-                                          SizedBox(width: 10),
-                                          Text('Cache cleared successfully!'),
+                                          SizedBox(
+                                            width: _SettingsDimensions
+                                                .paddingMedium,
+                                          ),
+                                          Text(
+                                            _SettingsStrings
+                                                .cacheClearedMessage,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -831,29 +1218,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
 
                     // 5. SUPPORT & ACTIONS
-                    if (_matchesSearch(
-                      'Support Legal Terms Privacy Help Feedback Logout Delete',
-                    )) ...[
-                      _buildSectionHeader('Support & System'),
+                    if (_matchesSearch(_SettingsStrings.searchKeySupport)) ...[
+                      _buildSectionHeader(
+                        _SettingsStrings.sectionSupportSystem,
+                      ),
                       _buildFloatingCard(
                         children: [
                           ListTile(
                             leading: const Icon(
                               CupertinoIcons.chat_bubble_2_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Feedback',
+                              _SettingsStrings.tileFeedback,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             trailing: const Icon(
                               CupertinoIcons.chevron_right,
-                              size: 16,
-                              color: Colors.grey,
+                              size: _SettingsDimensions.fontSizeChevron,
+                              color: _SettingsColors.textGrey,
                             ),
                             onTap: () {
                               Navigator.push(
@@ -868,20 +1255,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ListTile(
                             leading: const Icon(
                               CupertinoIcons.doc_text_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'Terms & Privacy',
+                              _SettingsStrings.tileTermsPrivacy,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             trailing: const Icon(
                               CupertinoIcons.chevron_right,
-                              size: 16,
-                              color: Colors.grey,
+                              size: _SettingsDimensions.fontSizeChevron,
+                              color: _SettingsColors.textGrey,
                             ),
                             onTap: () {
                               Navigator.push(
@@ -897,47 +1284,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ListTile(
                             leading: const Icon(
                               CupertinoIcons.info_circle_fill,
-                              color: midGreen,
-                              size: 20,
+                              color: _SettingsColors.midGreen,
+                              size: _SettingsDimensions.iconSizeStandard,
                             ),
                             title: const Text(
-                              'App Version',
+                              _SettingsStrings.tileAppVersion,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                fontSize: 14,
+                                fontSize: _SettingsDimensions.fontSizeBody,
                               ),
                             ),
                             subtitle: const Text(
-                              'v1.0.4 (Build 42)',
+                              _SettingsStrings.appVersionString,
                               style: TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey,
+                                fontSize: _SettingsDimensions.fontSizeSub,
+                                color: _SettingsColors.textGrey,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: _SettingsDimensions.spacingXLarge),
 
                       Row(
                         children: [
                           Expanded(
                             child: Container(
-                              height: 48,
+                              height: _SettingsDimensions.buttonHeightStandard,
                               decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
+                                color: _SettingsColors.cardBg,
+                                borderRadius: BorderRadius.circular(
+                                  _SettingsDimensions.borderRadiusCard,
+                                ),
                                 border: Border.all(
-                                  color: borderGreen,
-                                  width: 1.5,
+                                  color: _SettingsColors.borderGreen,
+                                  width:
+                                      _SettingsDimensions.borderWidthStandard,
                                 ),
                               ),
                               child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(
+                                  _SettingsDimensions.borderRadiusCard,
+                                ),
                                 onTap: () => _showConfirmationDialog(
-                                  title: 'Log Out',
-                                  content: 'Are you sure you want to log out?',
-                                  confirmText: 'Log Out',
+                                  title: _SettingsStrings.dialogLogoutTitle,
+                                  content: _SettingsStrings.dialogLogoutContent,
+                                  confirmText: _SettingsStrings.buttonLogOut,
                                   onConfirm: _handleLogout,
                                 ),
                                 child: const Row(
@@ -945,16 +1337,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   children: [
                                     Icon(
                                       CupertinoIcons.square_arrow_right,
-                                      size: 18,
-                                      color: darkGreen,
+                                      size: _SettingsDimensions.iconSizeSmall,
+                                      color: _SettingsColors.darkGreen,
                                     ),
-                                    SizedBox(width: 8),
+                                    SizedBox(
+                                      width: _SettingsDimensions.spacingSmall,
+                                    ),
                                     Text(
-                                      'Log Out',
+                                      _SettingsStrings.buttonLogOut,
                                       style: TextStyle(
-                                        color: darkGreen,
+                                        color: _SettingsColors.darkGreen,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 14,
+                                        fontSize:
+                                            _SettingsDimensions.fontSizeBody,
                                       ),
                                     ),
                                   ],
@@ -962,25 +1357,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(
+                            width: _SettingsDimensions.spacingLarge,
+                          ),
                           Expanded(
                             child: Container(
-                              height: 48,
+                              height: _SettingsDimensions.buttonHeightStandard,
                               decoration: BoxDecoration(
-                                color: Colors.red.shade50,
-                                borderRadius: BorderRadius.circular(12),
+                                color: _SettingsColors.deleteBg,
+                                borderRadius: BorderRadius.circular(
+                                  _SettingsDimensions.borderRadiusCard,
+                                ),
                                 border: Border.all(
-                                  color: Colors.red.shade200,
-                                  width: 1.5,
+                                  color: _SettingsColors.deleteBorder,
+                                  width:
+                                      _SettingsDimensions.borderWidthStandard,
                                 ),
                               ),
                               child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(
+                                  _SettingsDimensions.borderRadiusCard,
+                                ),
                                 onTap: () => _showConfirmationDialog(
-                                  title: 'Delete Account',
-                                  content:
-                                      'Permanently remove all data and linked hardware?',
-                                  confirmText: 'Delete',
+                                  title: _SettingsStrings.dialogDeleteTitle,
+                                  content: _SettingsStrings.dialogDeleteContent,
+                                  confirmText: _SettingsStrings.buttonDelete,
                                   isDestructive: true,
                                   onConfirm: _handleDeleteAccount,
                                 ),
@@ -989,16 +1390,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   children: [
                                     Icon(
                                       CupertinoIcons.trash,
-                                      size: 18,
-                                      color: Colors.red.shade700,
+                                      size: _SettingsDimensions.iconSizeSmall,
+                                      color: _SettingsColors.deleteText,
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(
+                                      width: _SettingsDimensions.spacingSmall,
+                                    ),
                                     Text(
-                                      'Delete',
+                                      _SettingsStrings.buttonDelete,
                                       style: TextStyle(
-                                        color: Colors.red.shade700,
+                                        color: _SettingsColors.deleteText,
                                         fontWeight: FontWeight.bold,
-                                        fontSize: 14,
+                                        fontSize:
+                                            _SettingsDimensions.fontSizeBody,
                                       ),
                                     ),
                                   ],
@@ -1008,7 +1412,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(
+                        height: _SettingsDimensions.spacingXXLarge,
+                      ),
                     ],
                   ],
                 ),
@@ -1022,18 +1428,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildTopHeader() {
     return Container(
-      padding: const EdgeInsets.only(top: 45, left: 16, right: 16, bottom: 25),
+      padding: const EdgeInsets.only(
+        top: _SettingsDimensions.paddingHeaderTop,
+        left: _SettingsDimensions.paddingLarge,
+        right: _SettingsDimensions.paddingLarge,
+        bottom: _SettingsDimensions.paddingHeaderBottom,
+      ),
       decoration: const BoxDecoration(
-        color: darkGreen,
+        color: _SettingsColors.darkGreen,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(20),
-          bottomRight: Radius.circular(20),
+          bottomLeft: Radius.circular(_SettingsDimensions.borderRadiusHeader),
+          bottomRight: Radius.circular(_SettingsDimensions.borderRadiusHeader),
         ),
         gradient: LinearGradient(
-          colors: [darkGreen, midGreen],
+          colors: [_SettingsColors.darkGreen, _SettingsColors.midGreen],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0.38, 1],
+          stops: [
+            _SettingsDimensions.gradientStopTop,
+            _SettingsDimensions.gradientStopBottom,
+          ],
         ),
       ),
       child: Column(
@@ -1044,36 +1458,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
               GestureDetector(
                 onTap: () => Navigator.maybePop(context),
                 child: Container(
-                  height: 40,
-                  width: 40,
+                  height: _SettingsDimensions.backButtonSize,
+                  width: _SettingsDimensions.backButtonSize,
                   decoration: BoxDecoration(
                     color: Colors.transparent,
                     shape: BoxShape.circle,
-                    border: Border.all(color: borderGreen, width: 1.5),
+                    border: Border.all(
+                      color: _SettingsColors.borderGreen,
+                      width: _SettingsDimensions.borderWidthStandard,
+                    ),
                   ),
                   alignment: Alignment.center,
                   child: const Icon(
                     CupertinoIcons.chevron_left,
-                    size: 20,
-                    color: Colors.white,
+                    size: _SettingsDimensions.iconSizeStandard,
+                    color: _SettingsColors.textWhite,
                   ),
                 ),
               ),
               const Spacer(),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: _SettingsDimensions.spacingHeaderTitle),
           const Text(
-            'Settings',
+            _SettingsStrings.pageTitle,
             style: TextStyle(
-              fontSize: 32,
+              fontSize: _SettingsDimensions.fontSizePageTitle,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: _SettingsColors.textWhite,
             ),
           ),
           const Text(
-            'System & App Preferences',
-            style: TextStyle(fontSize: 11, color: Colors.white70),
+            _SettingsStrings.pageSubtitle,
+            style: TextStyle(
+              fontSize: _SettingsDimensions.fontSizeSub,
+              color: _SettingsColors.textWhite70,
+            ),
           ),
         ],
       ),
@@ -1082,13 +1502,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4, top: 18, bottom: 8),
+      padding: const EdgeInsets.only(
+        left: _SettingsDimensions.paddingMicro,
+        top: _SettingsDimensions.spacingSectionTop,
+        bottom: _SettingsDimensions.spacingSmall,
+      ),
       child: Text(
         title,
         style: const TextStyle(
-          fontSize: 22,
+          fontSize: _SettingsDimensions.fontSizeSectionHeader,
           fontWeight: FontWeight.bold,
-          color: Colors.black,
+          color: _SettingsColors.textBlack,
         ),
       ),
     );
@@ -1096,18 +1520,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildValueBadge(String value) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: _SettingsDimensions.paddingMedium,
+        vertical: _SettingsDimensions.paddingMicro,
+      ),
       decoration: BoxDecoration(
-        color: darkGreen,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderGreen, width: 1),
+        color: _SettingsColors.darkGreen,
+        borderRadius: BorderRadius.circular(
+          _SettingsDimensions.borderRadiusBadge,
+        ),
+        border: Border.all(
+          color: _SettingsColors.borderGreen,
+          width: _SettingsDimensions.borderWidthThin,
+        ),
       ),
       child: Text(
         value,
         style: const TextStyle(
-          color: Colors.white,
+          color: _SettingsColors.textWhite,
           fontWeight: FontWeight.w500,
-          fontSize: 11,
+          fontSize: _SettingsDimensions.fontSizeBadge,
         ),
       ),
     );
@@ -1115,16 +1547,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildFloatingCard({required List<Widget> children}) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: const EdgeInsets.only(
+        bottom: _SettingsDimensions.paddingMicro + 2,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: _SettingsColors.cardBg,
+        borderRadius: BorderRadius.circular(
+          _SettingsDimensions.borderRadiusCard,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.2),
-            spreadRadius: 2,
-            blurRadius: 3,
-            offset: const Offset(0, 2),
+            color: _SettingsColors.shadowColor,
+            spreadRadius: _SettingsDimensions.shadowSpread,
+            blurRadius: _SettingsDimensions.shadowBlurCard,
+            offset: _SettingsDimensions.shadowOffset,
           ),
         ],
       ),
@@ -1135,13 +1571,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildDivider() {
     return Divider(
       height: 1,
-      indent: 16,
-      endIndent: 16,
-      color: Colors.grey.withValues(alpha: 0.2),
+      indent: _SettingsDimensions.paddingLarge,
+      endIndent: _SettingsDimensions.paddingLarge,
+      color: _SettingsColors.dividerColor,
     );
   }
 }
-
-
-//finally done
-//firestore optimized

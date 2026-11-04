@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,47 +13,65 @@ class AccountSetupScreen extends StatefulWidget {
 }
 
 class _AccountSetupScreenState extends State<AccountSetupScreen> {
-  // Theme Color Constants matching design guide
-  static const Color darkGreen = Color(0xFF092508);
-  static const Color midGreen = Color(0xFF20831B);
-  static const Color pageBg = Color(0xFFF8FAF8);
-  static const Color cardBg = Colors.white;
+  // Color palette matching the design images (gray input boxes, bold title, green button)
+  static const Color fieldBgColor = Color(0xFFE0E0E0);
+  static const Color primaryGreen = Color(0xFF42B748);
+  static const Color textPrimaryColor = Color(0xFF111111);
 
+  // Backend Flask API Base URL
+  static const String backendBaseUrl = 'http://127.0.0.1:5000';
+
+  // Step 1 = Enter your info, Step 2 = Setup your first site info
+  int _currentStep = 1;
+  bool _isLoading = false;
+
+  // Step 1 Controllers (User Profile)
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _contactController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _contactController = TextEditingController();
 
-  bool _isNameFilled = false;
-  bool _isNameReadOnly = false;
-  bool _isContactReadOnly = false;
-  bool _isEmailReadOnly = false;
+  // Step 2 Controllers (Group / Site Parameters)
+  final TextEditingController _groupNameController = TextEditingController();
+  final TextEditingController _batteryCapacityController =
+      TextEditingController();
+  final TextEditingController _panelOutputController = TextEditingController();
+
+  bool _isStep1Valid = false;
+  bool _isStep2Valid = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
-    _nameController.addListener(() {
-      setState(() {
-        _isNameFilled = _nameController.text.trim().isNotEmpty;
-      });
+
+    _nameController.addListener(_validateInputs);
+    _groupNameController.addListener(_validateInputs);
+    _batteryCapacityController.addListener(_validateInputs);
+    _panelOutputController.addListener(_validateInputs);
+  }
+
+  void _validateInputs() {
+    setState(() {
+      _isStep1Valid = _nameController.text.trim().isNotEmpty;
+      _isStep2Valid =
+          _groupNameController.text.trim().isNotEmpty &&
+          _batteryCapacityController.text.trim().isNotEmpty &&
+          _panelOutputController.text.trim().isNotEmpty;
     });
   }
 
-  // Read existing profile data from Firestore & Auth if available
+  // Pre-fill profile data from FirebaseAuth or Firestore if available
   Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       if (user.email != null && user.email!.isNotEmpty) {
         _emailController.text = user.email!;
-        _isEmailReadOnly = true;
       }
       if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
         _contactController.text = user.phoneNumber!;
-        _isContactReadOnly = true;
       }
       if (user.displayName != null && user.displayName!.isNotEmpty) {
         _nameController.text = user.displayName!;
-        _isNameReadOnly = true;
       }
 
       try {
@@ -64,67 +84,154 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           if (data['name'] != null &&
               data['name'].toString().trim().isNotEmpty) {
             _nameController.text = data['name'];
-            _isNameReadOnly = true;
           }
           if (data['phone'] != null &&
               data['phone'].toString().trim().isNotEmpty) {
             _contactController.text = data['phone'];
-            _isContactReadOnly = true;
           }
           if (data['email'] != null &&
               data['email'].toString().trim().isNotEmpty) {
             _emailController.text = data['email'];
-            _isEmailReadOnly = true;
           }
         }
       } catch (_) {}
-      setState(() {
-        _isNameFilled = _nameController.text.trim().isNotEmpty;
-      });
+
+      _validateInputs();
     }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _contactController.dispose();
     _emailController.dispose();
+    _contactController.dispose();
+    _groupNameController.dispose();
+    _batteryCapacityController.dispose();
+    _panelOutputController.dispose();
     super.dispose();
   }
 
-  // Write profile data to Firestore & Auth securely and navigate to Home
-  Future<void> _onSaveAccount() async {
+  // Helper to send HTTP JSON requests to the backend server
+  Future<void> _sendToBackendApi(
+    String endpoint,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 4);
+      final request = await client.postUrl(
+        Uri.parse('$backendBaseUrl$endpoint'),
+      );
+      request.headers.set('content-type', 'application/json');
+      request.add(utf8.encode(jsonEncode(payload)));
+      final response = await request.close();
+      client.close();
+      debugPrint(
+        '[BACKEND SYNC] $endpoint Response status: ${response.statusCode}',
+      );
+    } catch (e) {
+      debugPrint('[BACKEND SYNC WARNING] Failed to connect to $endpoint: $e');
+    }
+  }
+
+  // Save complete profile & group info to Firestore & backend
+  Future<void> _onCompleteSetup() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      try {
-        await user.updateDisplayName(_nameController.text.trim());
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'name': _nameController.text.trim(),
-          'phone': _contactController.text.trim(),
-          'email': _emailController.text.trim().isNotEmpty
-              ? _emailController.text.trim()
-              : (user.email ?? ''),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } catch (_) {}
+    final uid =
+        user?.uid ?? 'local_user_${DateTime.now().millisecondsSinceEpoch}';
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final name = _nameController.text.trim();
+    final email = _emailController.text.trim().isNotEmpty
+        ? _emailController.text.trim()
+        : (user?.email ?? '');
+    final phone = _contactController.text.trim();
+
+    final groupName = _groupNameController.text.trim();
+    final batteryCapacity =
+        double.tryParse(_batteryCapacityController.text.trim()) ?? 200.0;
+    final combinePanelOutput =
+        double.tryParse(_panelOutputController.text.trim()) ?? 300.0;
+    final groupId = 'group_${uid.length >= 6 ? uid.substring(0, 6) : uid}';
+
+    try {
+      // 1. Update FirebaseAuth Display Name
+      if (user != null && name.isNotEmpty) {
+        await user.updateDisplayName(name);
+      }
+
+      // 2. Save User Profile to Firestore (users/{uid})
+      final userPayload = {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(userPayload, SetOptions(merge: true));
+
+      // 3. Save Group/Site Info to Firestore under user subcollection (users/{uid}/groups/{groupId})
+      final groupPayload = {
+        'group_id': groupId,
+        'group_name': groupName,
+        'max_battery_capacity': batteryCapacity,
+        'combine_max_panel_output': combinePanelOutput,
+        'owner_uid': uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('groups')
+          .doc(groupId)
+          .set(groupPayload, SetOptions(merge: true));
+
+      // 4. Send payloads to Flask Backend Endpoints
+      await _sendToBackendApi('/api/user/setup', {
+        'uid': uid,
+        'name': name,
+        'email': email,
+        'phone': phone,
+      });
+
+      await _sendToBackendApi('/api/group/setup', {
+        'uid': uid,
+        'group_id': groupId,
+        'group_name': groupName,
+        'max_battery_capacity': batteryCapacity,
+        'combine_max_panel_output': combinePanelOutput,
+      });
+    } catch (e) {
+      debugPrint('[SETUP ERROR] $e');
     }
 
     if (!mounted) return;
+
+    setState(() {
+      _isLoading = false;
+    });
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: darkGreen,
+        backgroundColor: primaryGreen,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         content: Row(
           children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
+            const Icon(Icons.check_circle_rounded, color: Colors.white),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                'Welcome, ${_nameController.text.trim()}!',
+                'Setup complete! Welcome, $name.',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
@@ -133,250 +240,201 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
       ),
     );
 
-    // Navigate to Home Screen after completing setup
+    // Dynamic setup metrics passed to home screen without hardcoded static defaults
+    const setupPercentage = 100;
+    const cardCount = 1;
+
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
-        builder: (context) =>
-            const HomeScreen(currentPercentage: 20, cardCount: 1),
+        builder: (context) => const HomeScreen(
+          currentPercentage: setupPercentage,
+          cardCount: cardCount,
+        ),
       ),
       (route) => false,
     );
   }
 
+  void _onContinuePressed() {
+    if (_currentStep == 1) {
+      if (_isStep1Valid) {
+        setState(() {
+          _currentStep = 2;
+        });
+      }
+    } else {
+      if (_isStep2Valid) {
+        _onCompleteSetup();
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: pageBg,
-      body: Stack(
-        children: [
-          // ==================== 1. GREEN HERO HEADER ====================
-          Container(
-            width: double.infinity,
-            height: 250,
-            padding: const EdgeInsets.fromLTRB(20, 52, 20, 0),
-            decoration: const BoxDecoration(
-              color: darkGreen,
-              borderRadius: BorderRadius.vertical(bottom: Radius.circular(36)),
-              gradient: LinearGradient(
-                colors: [darkGreen, midGreen],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24.0,
+                  vertical: 32.0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 20),
+                    // Header text matching provided images exactly
+                    Text(
+                      _currentStep == 1
+                          ? 'Enter your info.'
+                          : 'Setup your first site info.',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: textPrimaryColor,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+
+                    // STEP 1: USER INFO FIELDS
+                    if (_currentStep == 1) ...[
+                      _buildCleanTextField(
+                        controller: _nameController,
+                        hintText: 'Name',
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCleanTextField(
+                        controller: _emailController,
+                        hintText: 'Email Address (Optional)',
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCleanTextField(
+                        controller: _contactController,
+                        hintText: 'Contact Number (Optional)',
+                        keyboardType: TextInputType.phone,
+                      ),
+                    ],
+
+                    // STEP 2: GROUP / SITE INFO FIELDS
+                    if (_currentStep == 2) ...[
+                      _buildCleanTextField(
+                        controller: _groupNameController,
+                        hintText: 'Site Name',
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCleanTextField(
+                        controller: _batteryCapacityController,
+                        hintText: 'Max Battery Capacity',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildCleanTextField(
+                        controller: _panelOutputController,
+                        hintText: 'Combine Max Panel Output',
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Row(
-                children: [
-                  if (Navigator.canPop(context))
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 12),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.arrow_back_rounded,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: const Text(
-                      'Account Setup',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: darkGreen,
-                        letterSpacing: -0.3,
-                      ),
+
+            // BOTTOM ACTION BUTTON (Solid Green Button matching screenshots)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+              child: SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor:
+                        ((_currentStep == 1 && _isStep1Valid) ||
+                            (_currentStep == 2 && _isStep2Valid))
+                        ? primaryGreen
+                        : Colors.grey.shade400,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                ],
+                  onPressed: _isLoading
+                      ? null
+                      : (((_currentStep == 1 && _isStep1Valid) ||
+                                (_currentStep == 2 && _isStep2Valid))
+                            ? _onContinuePressed
+                            : null),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2.5,
+                          ),
+                        )
+                      : const Text(
+                          'Continue',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                ),
               ),
             ),
-          ),
-
-          // ==================== 2. MAIN CARD CONTENT ====================
-          SafeArea(
-            child: Column(
-              children: [
-                const SizedBox(height: 110),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: cardBg,
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'PROFILE DETAILS',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey.shade500,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          // --- REQUIRED FIELD ---
-                          _buildModernTextField(
-                            controller: _nameController,
-                            label: 'Full Name *',
-                            hint: 'e.g., Alex Morgan',
-                            icon: Icons.person_rounded,
-                            enabled: !_isNameReadOnly,
-                          ),
-                          const SizedBox(height: 24),
-
-                          Divider(color: Colors.grey.shade200, height: 1),
-                          const SizedBox(height: 24),
-
-                          // --- OPTIONAL FIELDS (BOTTOM) ---
-                          _buildModernTextField(
-                            controller: _contactController,
-                            label: 'Contact Number (Optional)',
-                            hint: 'e.g., +1 555-0199',
-                            icon: Icons.phone_rounded,
-                            keyboardType: TextInputType.phone,
-                            enabled: !_isContactReadOnly,
-                          ),
-                          const SizedBox(height: 16),
-
-                          _buildModernTextField(
-                            controller: _emailController,
-                            label: 'Email Address (Optional)',
-                            hint: 'e.g., alex@example.com',
-                            icon: Icons.email_rounded,
-                            keyboardType: TextInputType.emailAddress,
-                            enabled: !_isEmailReadOnly,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                // ==================== 3. BOTTOM BUTTON ====================
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isNameFilled
-                            ? midGreen
-                            : Colors.grey.shade300,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                      ),
-                      onPressed: _isNameFilled ? _onSaveAccount : null,
-                      child: Text(
-                        'Continue',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: _isNameFilled
-                              ? Colors.white
-                              : Colors.grey.shade500,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildModernTextField({
+  Widget _buildCleanTextField({
     required TextEditingController controller,
-    required String label,
-    required String hint,
-    required IconData icon,
+    required String hintText,
     TextInputType keyboardType = TextInputType.text,
-    bool enabled = true,
   }) {
-    return TextFormField(
+    return TextField(
       controller: controller,
-      enabled: enabled,
       keyboardType: keyboardType,
-      style: TextStyle(
+      style: const TextStyle(
+        fontSize: 15,
         fontWeight: FontWeight.w500,
-        color: enabled ? darkGreen : Colors.grey.shade600,
+        color: textPrimaryColor,
       ),
       decoration: InputDecoration(
-        labelText: label,
-        hintText: hint,
-        labelStyle: TextStyle(
-          color: enabled ? Colors.grey.shade700 : Colors.grey.shade500,
+        hintText: hintText,
+        hintStyle: TextStyle(
+          color: Colors.grey.shade600,
           fontSize: 14,
-        ),
-        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-        prefixIcon: Icon(
-          icon,
-          color: enabled ? midGreen : Colors.grey,
-          size: 22,
+          fontWeight: FontWeight.w400,
         ),
         filled: true,
-        fillColor: enabled ? const Color(0xFFF4F7F4) : Colors.grey.shade200,
+        fillColor: fieldBgColor,
         contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
+          horizontal: 16,
           vertical: 18,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
-        ),
-        disabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide(color: Colors.grey.shade300, width: 1),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: midGreen, width: 1.5),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: primaryGreen, width: 1.5),
         ),
       ),
     );

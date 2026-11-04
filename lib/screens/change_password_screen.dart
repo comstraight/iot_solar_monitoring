@@ -27,9 +27,14 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   bool _isLoading = false;
 
+  // Extracted constants
+  static const int _minPasswordLength = 8;
+  static const String _passwordProviderId = 'password';
+
   static const Color darkGreen = Color(0xFF092508);
   static const Color midGreen = Color(0xFF20831B);
   static const Color lightGreenBg = Color(0xFFE8F5E9);
+  static const Color snackBarSuccessColor = Color(0xFF00FF22);
 
   @override
   void dispose() {
@@ -59,7 +64,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       }
 
       final isEmailUser = user.providerData.any(
-        (p) => p.providerId == 'password',
+        (p) => p.providerId == _passwordProviderId,
       );
       if (!isEmailUser) {
         if (mounted) {
@@ -95,14 +100,28 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       await user.reauthenticateWithCredential(credential);
       await user.updatePassword(newPassword);
 
-      // Record password change timestamp in Firestore for SecuritySettingsScreen
+      // Record password change timestamp in Firestore synced with server.py schema
+      final nowTimestamp = FieldValue.serverTimestamp();
       try {
+        final batch = FirebaseFirestore.instance.batch();
+
         final userDocRef = FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid);
-        await userDocRef.update({
-          'passwordLastChanged': FieldValue.serverTimestamp(),
-        });
+        batch.set(userDocRef, {
+          'passwordLastChanged': nowTimestamp,
+          'password_timestamp': nowTimestamp,
+          'updatedAt': nowTimestamp,
+        }, SetOptions(merge: true));
+
+        final statusDocRef = FirebaseFirestore.instance
+            .collection('system_status')
+            .doc('current');
+        batch.set(statusDocRef, {
+          'account_info': {'password_timestamp': nowTimestamp},
+        }, SetOptions(merge: true));
+
+        await batch.commit();
       } catch (e) {
         debugPrint('Firestore timestamp update failed: $e');
         try {
@@ -110,7 +129,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               .collection('users')
               .doc(user.uid)
               .set({
-                'passwordLastChanged': FieldValue.serverTimestamp(),
+                'passwordLastChanged': nowTimestamp,
+                'password_timestamp': nowTimestamp,
+                'updatedAt': nowTimestamp,
               }, SetOptions(merge: true));
         } catch (innerError) {
           debugPrint('Firestore fallback set failed: $innerError');
@@ -165,7 +186,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               isError
                   ? CupertinoIcons.exclamationmark_circle_fill
                   : CupertinoIcons.checkmark_circle_fill,
-              color: isError ? Colors.white : const Color(0xFF00FF22),
+              color: isError ? Colors.white : snackBarSuccessColor,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -294,8 +315,8 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                     if (val == null || val.isEmpty) {
                                       return 'Please enter a new password';
                                     }
-                                    if (val.length < 8) {
-                                      return 'Password must be at least 8 characters';
+                                    if (val.length < _minPasswordLength) {
+                                      return 'Password must be at least $_minPasswordLength characters';
                                     }
                                     if (!_uppercaseRegex.hasMatch(val)) {
                                       return 'Must contain at least one uppercase letter';
@@ -514,6 +535,3 @@ class _HeaderWidget extends StatelessWidget {
     );
   }
 }
-
-//finally done
-//firestore optimized

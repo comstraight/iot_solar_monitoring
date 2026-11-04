@@ -12,6 +12,8 @@ class EditableProfileScreen extends StatefulWidget {
   static const Color darkGreen = Color(0xFF092508);
   static const Color midGreen = Color(0xFF20831B);
   static const Color lightGreenBg = Color(0xFFE8F5E9);
+  static const Color _snackBarSuccessColor = Color(0xFF00FF22);
+  static const String _passwordProviderId = 'password';
 
   @override
   State<EditableProfileScreen> createState() => _EditableProfileScreenState();
@@ -88,7 +90,7 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
 
       // Disable email modification if signed in via social OAuth provider
       _isEmailEditable = currentUser.providerData.any(
-        (p) => p.providerId == 'password',
+        (p) => p.providerId == EditableProfileScreen._passwordProviderId,
       );
 
       final docSnapshot = await FirebaseFirestore.instance
@@ -138,7 +140,7 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
     }
   }
 
-  /// Writes user updates safely
+  /// Writes user updates safely to both users collection and system_status/current
   Future<void> _handleSave() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -173,28 +175,38 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
 
       if (!mounted) return;
 
-      // 2. Prepare and commit Firestore payload
-      final Map<String, dynamic> updateData = {
+      // 2. Prepare and commit Firestore payload across users and system_status collections
+      final Map<String, dynamic> userUpdateData = {
         'name': updatedName,
         'phone': updatedPhone,
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
       if (!isEmailChanged) {
-        updateData['email'] = updatedEmail;
+        userUpdateData['email'] = updatedEmail;
       } else {
-        updateData['pendingEmail'] = updatedEmail;
+        userUpdateData['pendingEmail'] = updatedEmail;
       }
+
+      final batch = FirebaseFirestore.instance.batch();
 
       final userDocRef = FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser.uid);
+      batch.set(userDocRef, userUpdateData, SetOptions(merge: true));
 
-      try {
-        await userDocRef.update(updateData);
-      } catch (_) {
-        await userDocRef.set(updateData, SetOptions(merge: true));
-      }
+      final statusDocRef = FirebaseFirestore.instance
+          .collection('system_status')
+          .doc('current');
+      batch.set(statusDocRef, {
+        'account_info': {
+          'account_name': updatedName,
+          'account_id':
+              'ACC-${currentUser.uid.substring(0, currentUser.uid.length >= 8 ? 8 : currentUser.uid.length).toUpperCase()}',
+        },
+      }, SetOptions(merge: true));
+
+      await batch.commit();
 
       TextInput.finishAutofillContext();
 
@@ -266,7 +278,9 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
               isError
                   ? CupertinoIcons.exclamationmark_circle_fill
                   : CupertinoIcons.checkmark_circle_fill,
-              color: isError ? Colors.white : const Color(0xFF00FF22),
+              color: isError
+                  ? Colors.white
+                  : EditableProfileScreen._snackBarSuccessColor,
             ),
             const SizedBox(width: 10),
             Expanded(

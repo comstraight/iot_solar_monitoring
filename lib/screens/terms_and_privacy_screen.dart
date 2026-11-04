@@ -10,29 +10,76 @@ class TermsAndPrivacyScreen extends StatefulWidget {
 }
 
 class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
+  // Color Palette Constants
   static const Color darkGreen = Color(0xFF092508);
   static const Color midGreen = Color(0xFF20831B);
   static const Color borderGreen = Color(0xFF20341E);
   static const Color pageBg = Colors.white;
+  static const Color textGrey = Colors.grey;
 
-  bool _isLoading = true;
+  // Firestore Collection, Document & Key Constants
+  static const String _collectionSystemStatus = 'system_status';
+  static const String _docCurrent = 'current';
+  static const String _fieldGlobals = 'globals';
+  static const String _fieldTermsAndConditions = 'terms_and_conditions';
+  static const String _fieldSections = 'sections';
+  static const String _fieldTitle = 'title';
+  static const String _fieldContent = 'content';
+  static const String _fieldAcceptedAt = 'accepted_at';
+  static const String _fieldLastUpdated = 'lastUpdated';
+  static const String _fieldCopyright = 'copyright';
 
-  String _lastUpdated = 'Loading...';
-  String _copyright = '© 2026 Solar Telemetry System';
-  List<Map<String, String>> _sections = [];
+  // Text Strings Constants
+  static const String _textLoading = 'Loading...';
+  static const String _textDefaultCopyright = '© 2026 Solar Telemetry System';
+  static const String _textUnknownDate = 'Unknown Date';
+  static const String _textFallbackDate = 'October 2026';
+  static const String _textLastUpdatedPrefix = 'Last Updated: ';
+  static const String _textNoTermsFound = 'No terms or privacy policies found.';
+  static const String _textHeaderTitle = 'Terms & Privacy';
+  static const String _textHeaderSubtitle =
+      'Legal Agreements & Data Protection Policy';
 
-  static const List<Map<String, String>> _defaultFallbackSections = [
+  // Fallback Section Content Constants
+  static const String _textFallbackSec1Title = '1. Terms of Service';
+  static const String _textFallbackSec1Content =
+      'By using the Solar Telemetry application, you agree to monitor solar system metrics responsibly. Data transmitted across sensors is intended for real-time diagnostics and energy production tracking.';
+  static const String _textFallbackSec2Title = '2. Privacy & Data Handling';
+  static const String _textFallbackSec2Content =
+      'We collect device usage metrics, panel status updates, and configuration parameters solely to optimize hardware diagnostics and compute accurate utility savings. Personal credentials are end-to-end encrypted.';
+
+  static const List _defaultFallbackSections = [
     {
-      'title': '1. Terms of Service',
-      'content':
-          'By using the Solar Telemetry application, you agree to monitor solar system metrics responsibly. Data transmitted across sensors is intended for real-time diagnostics and energy production tracking.',
+      _fieldTitle: _textFallbackSec1Title,
+      _fieldContent: _textFallbackSec1Content,
     },
     {
-      'title': '2. Privacy & Data Handling',
-      'content':
-          'We collect device usage metrics, panel status updates, and configuration parameters solely to optimize hardware diagnostics and compute accurate utility savings. Personal credentials are end-to-end encrypted.',
+      _fieldTitle: _textFallbackSec2Title,
+      _fieldContent: _textFallbackSec2Content,
     },
   ];
+
+  // Layout, Dimension & Font Size Constants
+  static const double _spacing12 = 12.0;
+  static const double _spacing16 = 16.0;
+  static const double _spacing18 = 18.0;
+  static const double _spacing25 = 25.0;
+  static const double _spacing32 = 32.0;
+  static const double _backButtonSize = 36.0;
+
+  static const double _fontSizeSubtext = 11.0;
+  static const double _fontSizePageTitle = 32.0;
+
+  static const double _borderWidth15 = 1.5;
+  static const double _iconSizeChevron = 18.0;
+  static const double _headerRadius = 20.0;
+  static const double _gradientStopTop = 0.38;
+  static const double _gradientStopBottom = 1.0;
+
+  bool _isLoading = true;
+  String _lastUpdated = _textLoading;
+  String _copyright = _textDefaultCopyright;
+  List _sections = [];
 
   @override
   void initState() {
@@ -41,10 +88,12 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
   }
 
   String _formatDate(dynamic rawDate) {
-    if (rawDate == null) return 'Unknown Date';
+    if (rawDate == null) return _textUnknownDate;
     if (rawDate is Timestamp) {
       final dt = rawDate.toDate();
-      return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      final monthStr = dt.month.toString().padLeft(2, '0');
+      final dayStr = dt.day.toString().padLeft(2, '0');
+      return '${dt.year}-$monthStr-$dayStr';
     }
     return rawDate.toString();
   }
@@ -52,34 +101,33 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
   Future<void> _fetchTermsFromFirebase() async {
     try {
       final doc = await FirebaseFirestore.instance
-          .collection('system_status')
-          .doc('current')
+          .collection(_collectionSystemStatus)
+          .doc(_docCurrent)
           .get();
 
       if (doc.exists && doc.data() != null) {
         final data = doc.data()!;
-        final globals = data['globals'] as Map<String, dynamic>? ?? {};
+        final globals = data[_fieldGlobals] as Map<String, dynamic>? ?? {};
         final terms =
-            globals['terms_and_conditions'] as Map<String, dynamic>? ?? {};
+            globals[_fieldTermsAndConditions] as Map<String, dynamic>? ?? {};
 
-        final rawSections = terms['sections'] as List<dynamic>? ?? [];
+        final rawSections = terms[_fieldSections] as List<dynamic>? ?? [];
 
-        final List<Map<String, String>> parsedSections = rawSections.map((sec) {
+        final List parsedSections = rawSections.map((sec) {
           final map = sec as Map<String, dynamic>;
           return {
-            'title': map['title']?.toString() ?? '',
-            'content': map['content']?.toString() ?? '',
+            _fieldTitle: map[_fieldTitle]?.toString() ?? '',
+            _fieldContent: map[_fieldContent]?.toString() ?? '',
           };
         }).toList();
 
         if (mounted) {
           setState(() {
             _lastUpdated = _formatDate(
-              terms['accepted_at'] ?? terms['lastUpdated'],
+              terms[_fieldAcceptedAt] ?? terms[_fieldLastUpdated],
             );
             _copyright =
-                terms['copyright']?.toString() ??
-                '© 2026 Solar Telemetry System';
+                terms[_fieldCopyright]?.toString() ?? _textDefaultCopyright;
             _sections = parsedSections.isNotEmpty
                 ? parsedSections
                 : _defaultFallbackSections;
@@ -90,7 +138,7 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
         if (mounted) {
           setState(() {
             _sections = _defaultFallbackSections;
-            _lastUpdated = 'October 2026';
+            _lastUpdated = _textFallbackDate;
             _isLoading = false;
           });
         }
@@ -99,7 +147,7 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
       if (mounted) {
         setState(() {
           _sections = _defaultFallbackSections;
-          _lastUpdated = 'October 2026';
+          _lastUpdated = _textFallbackDate;
           _isLoading = false;
         });
       }
@@ -117,49 +165,49 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
               children: [
                 _buildTopHeader(context),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  padding: const EdgeInsets.symmetric(horizontal: _spacing16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 16),
+                      const SizedBox(height: _spacing16),
                       Text(
-                        'Last Updated: $_lastUpdated',
+                        '$_textLastUpdatedPrefix$_lastUpdated',
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: _fontSizeSubtext,
                           fontWeight: FontWeight.bold,
-                          color: Colors.grey,
+                          color: textGrey,
                         ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: _spacing12),
                       if (_sections.isEmpty)
                         const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 32.0),
+                          padding: EdgeInsets.symmetric(vertical: _spacing32),
                           child: Center(
                             child: Text(
-                              'No terms or privacy policies found.',
-                              style: TextStyle(color: Colors.grey),
+                              _textNoTermsFound,
+                              style: TextStyle(color: textGrey),
                             ),
                           ),
                         )
                       else
                         ..._sections.map(
                           (sec) => _SectionWidget(
-                            title: sec['title'] ?? '',
-                            content: sec['content'] ?? '',
+                            title: sec[_fieldTitle] ?? '',
+                            content: sec[_fieldContent] ?? '',
                           ),
                         ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: _spacing32),
                       Center(
                         child: Text(
                           _copyright,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: _fontSizeSubtext,
                             color: Colors.grey.shade500,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: _spacing32),
                     ],
                   ),
                 ),
@@ -172,22 +220,22 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
     final topPadding = MediaQuery.paddingOf(context).top;
     return Container(
       padding: EdgeInsets.only(
-        top: topPadding + 16,
-        left: 16,
-        right: 16,
-        bottom: 25,
+        top: topPadding + _spacing16,
+        left: _spacing16,
+        right: _spacing16,
+        bottom: _spacing25,
       ),
       decoration: const BoxDecoration(
         color: darkGreen,
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(20),
-          bottomRight: Radius.circular(20),
+          bottomLeft: Radius.circular(_headerRadius),
+          bottomRight: Radius.circular(_headerRadius),
         ),
         gradient: LinearGradient(
           colors: [darkGreen, midGreen],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          stops: [0.38, 1],
+          stops: [_gradientStopTop, _gradientStopBottom],
         ),
       ),
       child: Column(
@@ -198,35 +246,38 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
               GestureDetector(
                 onTap: () => Navigator.maybePop(context),
                 child: Container(
-                  height: 36,
-                  width: 36,
+                  height: _backButtonSize,
+                  width: _backButtonSize,
                   decoration: BoxDecoration(
                     color: Colors.transparent,
                     shape: BoxShape.circle,
-                    border: Border.all(color: borderGreen, width: 1.5),
+                    border: Border.all(
+                      color: borderGreen,
+                      width: _borderWidth15,
+                    ),
                   ),
                   alignment: Alignment.center,
                   child: const Icon(
                     CupertinoIcons.chevron_left,
-                    size: 18,
+                    size: _iconSizeChevron,
                     color: Colors.white,
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: _spacing18),
           const Text(
-            'Terms & Privacy',
+            _textHeaderTitle,
             style: TextStyle(
-              fontSize: 32,
+              fontSize: _fontSizePageTitle,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
           ),
           const Text(
-            'Legal Agreements & Data Protection Policy',
-            style: TextStyle(fontSize: 11, color: Colors.white70),
+            _textHeaderSubtitle,
+            style: TextStyle(fontSize: _fontSizeSubtext, color: Colors.white70),
           ),
         ],
       ),
@@ -240,39 +291,58 @@ class _SectionWidget extends StatelessWidget {
 
   const _SectionWidget({required this.title, required this.content});
 
+  static const double _spacing4 = 4.0;
+  static const double _spacing8 = 8.0;
+  static const double _spacing16 = 16.0;
+  static const double _spacing18 = 18.0;
+  static const double _fontSizeSectionTitle = 20.0;
+  static const double _fontSizeContent = 13.0;
+  static const double _cardRadius = 12.0;
+  static const double _shadowAlpha = 0.2;
+  static const double _shadowSpread = 2.0;
+  static const double _shadowBlur = 3.0;
+  static const double _lineHeightContent = 1.4;
+
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, top: 18, bottom: 8),
+          padding: const EdgeInsets.only(
+            left: _spacing4,
+            top: _spacing18,
+            bottom: _spacing8,
+          ),
           child: Text(
             title,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: const TextStyle(
+              fontSize: _fontSizeSectionTitle,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
         Container(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(_cardRadius),
             boxShadow: [
               BoxShadow(
-                color: Colors.grey.withValues(alpha: 0.2),
-                spreadRadius: 2,
-                blurRadius: 3,
+                color: Colors.grey.withValues(alpha: _shadowAlpha),
+                spreadRadius: _shadowSpread,
+                blurRadius: _shadowBlur,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.all(_spacing16),
             child: Text(
               content,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: _fontSizeContent,
                 color: Colors.black87,
-                height: 1.4,
+                height: _lineHeightContent,
               ),
             ),
           ),
@@ -281,7 +351,3 @@ class _SectionWidget extends StatelessWidget {
     );
   }
 }
-
-
-//finally done
-//firestore optimized

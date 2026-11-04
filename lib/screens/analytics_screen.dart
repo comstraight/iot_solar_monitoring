@@ -1,14 +1,12 @@
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-// -----------------------------------------------------------------------------
-// FIRESTORE GROUP / SITE MODEL (Matching server.py 'groups' schema)
-// -----------------------------------------------------------------------------
 class SiteModel {
   final String groupId;
   final String groupName;
@@ -20,20 +18,41 @@ class SiteModel {
     required this.groupOrder,
   });
 
-  /// Deserializes Firestore map format from backend:
-  /// {"group_id": "site_01", "group_name": "Main Solar Farm", "group_order": 0}
   factory SiteModel.fromFirestore(Map<String, dynamic> json, String docId) {
     return SiteModel(
       groupId: json['group_id'] as String? ?? docId,
-      groupName: json['group_name'] as String? ?? 'Unnamed Site',
+      groupName:
+          json['group_name'] as String? ??
+          json['name'] as String? ??
+          'Unnamed Site',
       groupOrder: (json['group_order'] as num?)?.toInt() ?? 0,
     );
   }
 }
 
-// -----------------------------------------------------------------------------
-// FIRESTORE SUMMARY DOCUMENT MODEL (Pre-aggregated by server.py)
-// -----------------------------------------------------------------------------
+class OverviewGroupItem {
+  final String groupId;
+  final String groupName;
+  final double kwh;
+
+  const OverviewGroupItem({
+    required this.groupId,
+    required this.groupName,
+    required this.kwh,
+  });
+
+  factory OverviewGroupItem.fromFirestore(Map<String, dynamic> json) {
+    return OverviewGroupItem(
+      groupId: json['group_id'] as String? ?? '',
+      groupName:
+          json['group_name'] as String? ??
+          json['name'] as String? ??
+          'Unnamed Site',
+      kwh: (json['kwh'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
 class AnalyticsDocModel {
   final String id;
   final String title;
@@ -52,9 +71,17 @@ class AnalyticsDocModel {
     String docId,
   ) {
     final barsMap = (json['bars'] as Map<String, dynamic>?) ?? {};
-    final parsedBars = barsMap.map(
-      (k, v) => MapEntry(k, (v as num).toDouble()),
-    );
+    final parsedBars = barsMap.map((k, v) {
+      if (v is Map) {
+        return MapEntry(
+          k,
+          (v['val'] as num?)?.toDouble() ??
+              (v['raw_kwh'] as num?)?.toDouble() ??
+              0.0,
+        );
+      }
+      return MapEntry(k, (v as num).toDouble());
+    });
     final total = (json['totalKwh'] as num?)?.toDouble() ?? 0.0;
     final title = json['title'] as String? ?? docId;
 
@@ -124,6 +151,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   static const Color pageBg = Color(0xFFF4F4F4);
   static const Color cardBg = Color(0xFFEBEBEB);
 
+  static const List<Color> _outputOverviewColors = [
+    Color(0xFF52EA3A),
+    Color(0xFF65B738),
+    Color(0xFF2E6B12),
+    Color(0xFF0F2D06),
+  ];
+
   int _selectedTimeframe = 0; // 0: Daily, 1: Weekly, 2: Annually
   late PageController _pageController;
   int _activePageIndex = 0;
@@ -132,12 +166,20 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<AnalyticsDocModel> _weeklyDocs = [];
   List<AnalyticsDocModel> _annualDocs = [];
 
-  double _totalSystemKw = 0.9; // Dynamic fallback for 3x300W system (0.9 kW)
+  List<OverviewGroupItem> _dailyOverview = [];
+  List<OverviewGroupItem> _weeklyOverview = [];
+  List<OverviewGroupItem> _annualOverview = [];
+
+  // Dynamic system capacity and electricity tariff rate fetched from backend
+  double _totalSystemKw = 0.0;
+  double _tariffRate = 12.0;
+
   final DateTime _latestDate = DateTime.now();
 
   List<SiteModel> _sites = [
     const SiteModel(groupId: 'all', groupName: 'All Sites', groupOrder: 0),
   ];
+  Map<String, double> _siteOutputs = {};
   late SiteModel _selectedSite;
   bool _isLoadingSites = true;
   bool _isLoadingReadings = true;
@@ -147,7 +189,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     super.initState();
     _pageController = PageController(initialPage: 0);
 
-    // Pre-select initial site if opened from HomeScreen group shortcut
     if (widget.initialSiteId != null && widget.initialSiteName != null) {
       _selectedSite = SiteModel(
         groupId: widget.initialSiteId!,
@@ -162,17 +203,111 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     _loadFirestoreAnalytics();
   }
 
-  /// Fetches sites dynamically from Firestore 'groups' collection
+  /// Fetches sites & system status dynamically from Firestore system_status/current
   Future<void> _loadFirestoreSites() async {
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('groups')
-          .orderBy('group_order')
+      final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+      final docSnap = await FirebaseFirestore.instance
+          .collection('system_status')
+          .doc('current')
           .get();
 
-      final fetchedSites = snapshot.docs
-          .map((doc) => SiteModel.fromFirestore(doc.data(), doc.id))
-          .toList();
+      List<SiteModel> fetchedSites = [];
+      Map<String, double> calculatedOutputs = {};
+
+      List<OverviewGroupItem> fetchedDailyOverview = [];
+      List<OverviewGroupItem> fetchedWeeklyOverview = [];
+      List<OverviewGroupItem> fetchedAnnualOverview = [];
+
+      double dynamicSystemKw = 0.0;
+      double dynamicTariff = 12.0;
+
+      if (docSnap.exists && docSnap.data() != null) {
+        final data = docSnap.data()!;
+        final groupsMap = data['groups'] as Map<String, dynamic>? ?? {};
+        final panelsMap = data['panels'] as Map<String, dynamic>? ?? {};
+
+        // Extract dynamic tariff rate and rated system capacity from server.py document
+        if (data.containsKey('tariff_rate_per_kwh')) {
+          dynamicTariff = (data['tariff_rate_per_kwh'] as num).toDouble();
+        }
+        if (data.containsKey('total_system_kw')) {
+          dynamicSystemKw = (data['total_system_kw'] as num).toDouble();
+        }
+
+        final overviewMap =
+            data['output_overview'] as Map<String, dynamic>? ?? {};
+        final rawDaily = (overviewMap['daily'] as List<dynamic>?) ?? [];
+        final rawWeekly = (overviewMap['weekly'] as List<dynamic>?) ?? [];
+        final rawAnnual = (overviewMap['annually'] as List<dynamic>?) ?? [];
+
+        fetchedDailyOverview = rawDaily
+            .where((item) => item is Map<String, dynamic>)
+            .map(
+              (item) =>
+                  OverviewGroupItem.fromFirestore(item as Map<String, dynamic>),
+            )
+            .toList();
+        fetchedWeeklyOverview = rawWeekly
+            .where((item) => item is Map<String, dynamic>)
+            .map(
+              (item) =>
+                  OverviewGroupItem.fromFirestore(item as Map<String, dynamic>),
+            )
+            .toList();
+        fetchedAnnualOverview = rawAnnual
+            .where((item) => item is Map<String, dynamic>)
+            .map(
+              (item) =>
+                  OverviewGroupItem.fromFirestore(item as Map<String, dynamic>),
+            )
+            .toList();
+
+        groupsMap.forEach((gId, gData) {
+          if (gData is Map<String, dynamic>) {
+            final groupOwner = gData['owner_uid'] ?? gData['ownerUid'];
+            final groupName = (gData['group_name'] ?? gData['name'] ?? '')
+                .toString();
+
+            double siteKw = 0.0;
+            panelsMap.forEach((pId, pData) {
+              if (pData is Map<String, dynamic>) {
+                final pGroup = pData['group']?.toString();
+                if (pGroup == gId || pGroup == groupName) {
+                  final sensorData =
+                      pData['sensor_data'] as Map<String, dynamic>?;
+                  if (sensorData != null &&
+                      sensorData.containsKey('output_power_w')) {
+                    siteKw +=
+                        (sensorData['output_power_w'] as num).toDouble() /
+                        1000.0;
+                  }
+                }
+              }
+            });
+            calculatedOutputs[gId] = siteKw;
+
+            final hasMemberPanel = panelsMap.values.any((p) {
+              if (p is Map<String, dynamic>) {
+                final pGroup = p['group']?.toString();
+                final pOwner = p['owner_uid'] ?? p['ownerUid'];
+                return (pGroup == gId || pGroup == groupName) &&
+                    (pOwner == currentUid || currentUid == null);
+              }
+              return false;
+            });
+
+            if (groupOwner == currentUid ||
+                hasMemberPanel ||
+                currentUid == null) {
+              fetchedSites.add(SiteModel.fromFirestore(gData, gId));
+            }
+          }
+        });
+
+        fetchedSites.sort((a, b) => a.groupOrder.compareTo(b.groupOrder));
+      }
 
       setState(() {
         _sites = [
@@ -184,7 +319,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ...fetchedSites,
         ];
 
-        // Maintain shortcut selection if matching site exists in database
+        _tariffRate = dynamicTariff;
+        if (dynamicSystemKw > 0) {
+          _totalSystemKw = dynamicSystemKw;
+        }
+
+        _siteOutputs = calculatedOutputs;
+        _dailyOverview = fetchedDailyOverview;
+        _weeklyOverview = fetchedWeeklyOverview;
+        _annualOverview = fetchedAnnualOverview;
+
         if (widget.initialSiteId != null) {
           final matched = _sites.firstWhere(
             (s) => s.groupId == widget.initialSiteId,
@@ -201,16 +345,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
-  /// Fetches pre-aggregated analytics documents directly from Firestore
+  /// Fetches analytics documents targeting user-specific or group-specific collections
   Future<void> _loadFirestoreAnalytics() async {
     setState(() => _isLoadingReadings = true);
 
     try {
-      final targetId = _selectedSite.groupId == 'all'
-          ? 'solar_system_01'
-          : _selectedSite.groupId;
+      final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
 
-      // 1. Fetch system status to read current total system rated power
+      String targetId;
+      if (_selectedSite.groupId == 'all') {
+        targetId = (currentUid != null && currentUid.isNotEmpty)
+            ? 'user_$currentUid'
+            : 'solar_system_01';
+      } else {
+        targetId = _selectedSite.groupId;
+      }
+
+      // Calculate total system capacity dynamically if not present
       try {
         final statusDoc = await FirebaseFirestore.instance
             .collection('system_status')
@@ -219,16 +370,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
         if (statusDoc.exists) {
           final data = statusDoc.data();
-          if (data != null && data.containsKey('total_system_kw')) {
-            _totalSystemKw = (data['total_system_kw'] as num).toDouble();
-          } else if (data != null && data.containsKey('panels')) {
+          if (data != null && data.containsKey('panels')) {
             final panels = data['panels'] as Map<String, dynamic>? ?? {};
             double kwSum = 0.0;
             panels.forEach((_, pData) {
               if (pData is Map<String, dynamic>) {
-                final meta = pData['metadata'] as Map<String, dynamic>?;
-                if (meta != null && meta.containsKey('rated_power_w')) {
-                  kwSum += (meta['rated_power_w'] as num).toDouble() / 1000.0;
+                final pOwner = pData['owner_uid'] ?? pData['ownerUid'];
+                if (currentUid == null || pOwner == currentUid) {
+                  final meta = pData['metadata'] as Map<String, dynamic>?;
+                  if (meta != null && meta.containsKey('rated_power_w')) {
+                    kwSum += (meta['rated_power_w'] as num).toDouble() / 1000.0;
+                  }
                 }
               }
             });
@@ -239,36 +391,60 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         debugPrint('Error fetching system capacity: $e');
       }
 
-      // 2. Fetch Daily Analytics Summaries
-      final dailySnapshot = await FirebaseFirestore.instance
+      // Fetch Daily Analytics Summaries
+      var dailySnapshot = await FirebaseFirestore.instance
           .collection('analytics')
           .doc(targetId)
           .collection('daily')
           .get();
+
+      if (dailySnapshot.docs.isEmpty && targetId != 'solar_system_01') {
+        dailySnapshot = await FirebaseFirestore.instance
+            .collection('analytics')
+            .doc('solar_system_01')
+            .collection('daily')
+            .get();
+      }
 
       final fetchedDaily = dailySnapshot.docs
           .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
           .toList();
       fetchedDaily.sort((a, b) => a.id.compareTo(b.id));
 
-      // 3. Fetch Weekly Analytics Summaries
-      final weeklySnapshot = await FirebaseFirestore.instance
+      // Fetch Weekly Analytics Summaries
+      var weeklySnapshot = await FirebaseFirestore.instance
           .collection('analytics')
           .doc(targetId)
           .collection('weekly')
           .get();
+
+      if (weeklySnapshot.docs.isEmpty && targetId != 'solar_system_01') {
+        weeklySnapshot = await FirebaseFirestore.instance
+            .collection('analytics')
+            .doc('solar_system_01')
+            .collection('weekly')
+            .get();
+      }
 
       final fetchedWeekly = weeklySnapshot.docs
           .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
           .toList();
       fetchedWeekly.sort((a, b) => a.id.compareTo(b.id));
 
-      // 4. Fetch Annual Analytics Summaries
-      final annualSnapshot = await FirebaseFirestore.instance
+      // Fetch Annual Analytics Summaries
+      var annualSnapshot = await FirebaseFirestore.instance
           .collection('analytics')
           .doc(targetId)
           .collection('annually')
           .get();
+
+      if (annualSnapshot.docs.isEmpty && targetId != 'solar_system_01') {
+        annualSnapshot = await FirebaseFirestore.instance
+            .collection('analytics')
+            .doc('solar_system_01')
+            .collection('annually')
+            .get();
+      }
 
       final fetchedAnnual = annualSnapshot.docs
           .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
@@ -319,11 +495,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         : _dailyDocs;
 
     final timeBuckets = ['6AM', '9AM', '12NN', '3PM', '6PM'];
-
-    // Expected 3-hr bucket capacity (kW * 3hrs * 85% efficiency factor)
     final expectedBucketMax = _totalSystemKw > 0
         ? _totalSystemKw * 3.0 * 0.85
-        : 2.3;
+        : 1.0;
 
     return List.generate(recent7.length, (index) {
       final doc = recent7[index];
@@ -366,9 +540,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     if (_weeklyDocs.isEmpty) return [];
 
     final weekLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-    // Dynamic daily max capacity based on system kW and 5.0 Peak Sun Hours
-    final expectedDailyMax = _totalSystemKw > 0 ? _totalSystemKw * 5.0 : 4.5;
+    final expectedDailyMax = _totalSystemKw > 0 ? _totalSystemKw * 5.0 : 1.0;
 
     final daysSinceSun = (_latestDate.weekday % 7);
     final todayLabel = weekLabels[daysSinceSun];
@@ -424,15 +596,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       'Dec',
     ];
 
-    // Dynamic expected monthly max yield based on system kW, 5.0 PSH, and 30 days
     final expectedMonthlyMax = _totalSystemKw > 0
         ? _totalSystemKw * 5.0 * 30.0
-        : 135.0;
+        : 1.0;
 
     List<AnalyticsRecord> records = [];
 
     for (var doc in _annualDocs) {
-      // First Half (Jan - Jun)
+      // First Half
       double firstHalfTotal = 0.0;
       double firstHalfPeak = 0.0;
       for (int m = 1; m <= 6; m++) {
@@ -470,7 +641,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         ),
       );
 
-      // Second Half (Jul - Dec)
+      // Second Half
       double secondHalfTotal = 0.0;
       double secondHalfPeak = 0.0;
       for (int m = 7; m <= 12; m++) {
@@ -713,7 +884,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     final currentYearPower = _currentYearTotalPower;
-    final currentYearSavings = currentYearPower * 12.0;
+    // Dynamic electricity tariff multiplier replacing hardcoded 12.0
+    final currentYearSavings = currentYearPower * _tariffRate;
 
     final records = _buildRecordsForTimeframe(_selectedTimeframe);
 
@@ -779,19 +951,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               _buildEmptyChartCard()
             else
               _buildGraphCard(records),
-            if (_selectedSite.groupId != 'all') ...[
-              const SizedBox(height: 24),
-              const Text(
-                'Battery Diagnostics',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.black,
-                ),
+            const SizedBox(height: 24),
+            const Text(
+              'Output Overview',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Colors.black,
               ),
-              const SizedBox(height: 12),
-              _buildBatteryDiagnosticsCard(soc: 0.85, soh: 0.98),
-            ],
+            ),
+            const SizedBox(height: 12),
+            _buildOutputOverviewCard(),
             const SizedBox(height: 32),
           ],
         ),
@@ -1152,88 +1322,139 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     );
   }
 
-  Widget _buildBatteryDiagnosticsCard({
-    required double soc,
-    required double soh,
-  }) {
+  Widget _buildOutputOverviewCard() {
+    List<OverviewGroupItem> currentOverview;
+    switch (_selectedTimeframe) {
+      case 0:
+        currentOverview = _dailyOverview;
+        break;
+      case 1:
+        currentOverview = _weeklyOverview;
+        break;
+      case 2:
+      default:
+        currentOverview = _annualOverview;
+        break;
+    }
+
+    List<OverviewGroupItem> displayItems = [];
+
+    if (_selectedSite.groupId == 'all') {
+      if (currentOverview.isNotEmpty) {
+        displayItems = currentOverview.take(4).toList();
+      } else {
+        final nonAllSites = _sites.where((s) => s.groupId != 'all').toList();
+        final sortedSites = List<SiteModel>.from(nonAllSites)
+          ..sort(
+            (a, b) => (_siteOutputs[b.groupId] ?? 0.0).compareTo(
+              _siteOutputs[a.groupId] ?? 0.0,
+            ),
+          );
+        displayItems = sortedSites.take(4).map((s) {
+          return OverviewGroupItem(
+            groupId: s.groupId,
+            groupName: s.groupName,
+            kwh: _siteOutputs[s.groupId] ?? 0.0,
+          );
+        }).toList();
+      }
+    } else {
+      final match = currentOverview.firstWhere(
+        (item) => item.groupId == _selectedSite.groupId,
+        orElse: () => OverviewGroupItem(
+          groupId: _selectedSite.groupId,
+          groupName: _selectedSite.groupName,
+          kwh: _siteOutputs[_selectedSite.groupId] ?? 0.0,
+        ),
+      );
+      displayItems = [match];
+    }
+
+    List<double> values = [];
+    double totalOutput = 0.0;
+    for (var item in displayItems) {
+      values.add(item.kwh);
+      totalOutput += item.kwh;
+    }
+
+    if (totalOutput <= 0.0 &&
+        _currentYearTotalPower > 0.0 &&
+        displayItems.isNotEmpty) {
+      final share = _currentYearTotalPower / displayItems.length;
+      values = List.filled(displayItems.length, share);
+      totalOutput = _currentYearTotalPower;
+    }
+
+    final bool isNoData = displayItems.isEmpty || totalOutput <= 0.0;
+    final bool isSingleSite = displayItems.length == 1 && !isNoData;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
       ),
-      child: Column(
+      child: Row(
         children: [
-          _buildDiagnosticItem(
-            'State of Charge (SOC)',
-            '${(soc * 100).toInt()}%',
-            soc,
-            darkGreen,
-            Icons.battery_charging_full_rounded,
+          SizedBox(
+            width: 140,
+            height: 140,
+            child: CustomPaint(
+              painter: DonutChartPainter(
+                values: values,
+                colors: _outputOverviewColors,
+                isNoData: isNoData,
+                isSingleSite: isSingleSite,
+              ),
+            ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16),
-            child: Divider(height: 1, color: Colors.black12),
-          ),
-          _buildDiagnosticItem(
-            'State of Health (SOH)',
-            '${(soh * 100).toInt()}%',
-            soh,
-            Colors.teal,
-            Icons.favorite_rounded,
+          const SizedBox(width: 24),
+          Expanded(
+            child: SizedBox(
+              height: 140,
+              child: Column(
+                children: List.generate(4, (index) {
+                  return Expanded(
+                    child: Container(
+                      alignment: Alignment.centerLeft,
+                      child: index < displayItems.length
+                          ? Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 24,
+                                  decoration: BoxDecoration(
+                                    color: isNoData
+                                        ? const Color(0xFFC4C4C4)
+                                        : _outputOverviewColors[index %
+                                              _outputOverviewColors.length],
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    displayItems[index].groupName,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.black87,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  );
+                }),
+              ),
+            ),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildDiagnosticItem(
-    String label,
-    String valueText,
-    double progressValue,
-    Color progressColor,
-    IconData icon,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: progressColor, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              valueText,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
-                color: progressColor,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: progressValue,
-            minHeight: 10,
-            backgroundColor: Colors.black12,
-            valueColor: AlwaysStoppedAnimation<Color>(progressColor),
-          ),
-        ),
-      ],
     );
   }
 
@@ -1264,6 +1485,116 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   );
 }
 
+class DonutChartPainter extends CustomPainter {
+  final List<double> values;
+  final List<Color> colors;
+  final bool isNoData;
+  final bool isSingleSite;
 
-//finally done
-//optimized and ready for production
+  DonutChartPainter({
+    required this.values,
+    required this.colors,
+    required this.isNoData,
+    required this.isSingleSite,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+
+    const double donutThickness = 26.0;
+    const double cornerRadius = 4.0;
+    const double gapAngle = 0.08;
+
+    final double outerRadius =
+        (min(size.width, size.height) / 2) - cornerRadius;
+    final double innerRadius = outerRadius - donutThickness;
+
+    final outerRect = Rect.fromCircle(center: center, radius: outerRadius);
+    final innerRect = Rect.fromCircle(center: center, radius: innerRadius);
+
+    final fillPaint = Paint()..style = PaintingStyle.fill;
+    final strokePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = cornerRadius * 2
+      ..strokeJoin = StrokeJoin.round;
+
+    if (isNoData) {
+      fillPaint.color = const Color(0xFFC4C4C4);
+      strokePaint.color = const Color(0xFFC4C4C4);
+      _drawFullRing(canvas, outerRect, innerRect, fillPaint, strokePaint);
+      return;
+    }
+
+    final positiveValues = values.where((v) => v > 0).toList();
+
+    if (isSingleSite || positiveValues.length <= 1) {
+      final color = colors.isNotEmpty ? colors[0] : const Color(0xFF52EA3A);
+      fillPaint.color = color;
+      strokePaint.color = color;
+      _drawFullRing(canvas, outerRect, innerRect, fillPaint, strokePaint);
+      return;
+    }
+
+    final double total = positiveValues.fold(0.0, (sum, v) => sum + v);
+    if (total <= 0) {
+      fillPaint.color = const Color(0xFFC4C4C4);
+      strokePaint.color = const Color(0xFFC4C4C4);
+      _drawFullRing(canvas, outerRect, innerRect, fillPaint, strokePaint);
+      return;
+    }
+
+    double startAngle = -pi / 2;
+    int colorIdx = 0;
+
+    for (int i = 0; i < values.length; i++) {
+      final double val = values[i];
+      if (val <= 0) continue;
+
+      final double rawSweep = (val / total) * (2 * pi);
+      final Color sliceColor = colors[colorIdx % colors.length];
+      colorIdx++;
+
+      if (rawSweep > gapAngle) {
+        final double drawSweep = rawSweep - gapAngle;
+        final double drawStart = startAngle + (gapAngle / 2);
+
+        final path = Path()
+          ..arcTo(outerRect, drawStart, drawSweep, false)
+          ..arcTo(innerRect, drawStart + drawSweep, -drawSweep, false)
+          ..close();
+
+        fillPaint.color = sliceColor;
+        strokePaint.color = sliceColor;
+
+        canvas.drawPath(path, fillPaint);
+        canvas.drawPath(path, strokePaint);
+      }
+
+      startAngle += rawSweep;
+    }
+  }
+
+  void _drawFullRing(
+    Canvas canvas,
+    Rect outerRect,
+    Rect innerRect,
+    Paint fillPaint,
+    Paint strokePaint,
+  ) {
+    final path = Path()
+      ..addOval(outerRect)
+      ..addOval(innerRect)
+      ..fillType = PathFillType.evenOdd;
+    canvas.drawPath(path, fillPaint);
+    canvas.drawPath(path, strokePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant DonutChartPainter oldDelegate) {
+    return oldDelegate.values != values ||
+        oldDelegate.colors != colors ||
+        oldDelegate.isNoData != isNoData ||
+        oldDelegate.isSingleSite != isSingleSite;
+  }
+}
