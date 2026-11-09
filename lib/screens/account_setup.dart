@@ -1,10 +1,85 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
 import 'home_screen.dart';
 
+// =============================================================================
+// CONFIGURATION & ENVIRONMENT
+// =============================================================================
+abstract class AppConfig {
+  static const Duration networkTimeout = Duration(seconds: 12);
+}
+
+// =============================================================================
+// DATA LAYER & SERVICE
+// =============================================================================
+class AccountSetupService {
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _firestore;
+  final http.Client _httpClient;
+
+  AccountSetupService({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    http.Client? httpClient,
+  }) : _auth = auth ?? FirebaseAuth.instance,
+       _firestore = firestore ?? FirebaseFirestore.instance,
+       _httpClient = httpClient ?? http.Client();
+
+  /// Dispose client when service lifecycle ends
+  void dispose() {
+    _httpClient.close();
+  }
+
+  /// Fetches cached or server user profile securely via standard SDK cache-first handling
+  Future<Map<String, dynamic>?> fetchUserProfile(String uid) async {
+    try {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      return doc.data();
+    } catch (e) {
+      debugPrint('[AccountSetupService] Firestore fetch error: $e');
+      return null;
+    }
+  }
+
+  /// Saves user personal information directly to Firestore
+  Future<void> saveUserProfile({
+    required String name,
+    required String email,
+    required String phone,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'NO_USER',
+        message: 'User session expired. Please re-authenticate.',
+      );
+    }
+
+    final uid = user.uid;
+    final userRef = _firestore.collection('users').doc(uid);
+
+    // Commit personal info to Firestore
+    await userRef.set({
+      'name': name,
+      'email': email,
+      'phone': phone,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // Update Auth Profile Display Name
+    if (name.isNotEmpty && user.displayName != name) {
+      await user.updateProfile(displayName: name);
+    }
+  }
+}
+
+// =============================================================================
+// PRESENTATION / UI LAYER
+// =============================================================================
 class AccountSetupScreen extends StatefulWidget {
   const AccountSetupScreen({super.key});
 
@@ -13,90 +88,99 @@ class AccountSetupScreen extends StatefulWidget {
 }
 
 class _AccountSetupScreenState extends State<AccountSetupScreen> {
-  // Color palette matching the design images (gray input boxes, bold title, green button)
-  static const Color fieldBgColor = Color(0xFFE0E0E0);
+  // Theme Constants
+  static const Color fieldBgColor = Color(0xFFF2F2F7);
   static const Color primaryGreen = Color(0xFF42B748);
   static const Color textPrimaryColor = Color(0xFF111111);
+  static const Color disabledButtonColor = Color(0xFFBDBDBD);
+  static const Color hintTextColor = Color(0xFF757575);
 
-  // Backend Flask API Base URL
-  static const String backendBaseUrl = 'http://127.0.0.1:5000';
+  static const OutlineInputBorder _defaultBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.all(Radius.circular(12)),
+    borderSide: BorderSide.none,
+  );
 
-  // Step 1 = Enter your info, Step 2 = Setup your first site info
-  int _currentStep = 1;
+  static const OutlineInputBorder _focusedBorder = OutlineInputBorder(
+    borderRadius: BorderRadius.all(Radius.circular(12)),
+    borderSide: BorderSide(color: primaryGreen, width: 1.5),
+  );
+
+  static const RoundedRectangleBorder _buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(12)),
+  );
+
+  // Email Validation Regex
+  static final RegExp _emailRegExp = RegExp(
+    r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+",
+  );
+
+  late final AccountSetupService _setupService;
+
   bool _isLoading = false;
+  bool _isProfileHydrated = false;
 
-  // Step 1 Controllers (User Profile)
+  // Form Controllers (Site and hardware controllers removed)
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _contactController = TextEditingController();
 
-  // Step 2 Controllers (Group / Site Parameters)
-  final TextEditingController _groupNameController = TextEditingController();
-  final TextEditingController _batteryCapacityController =
-      TextEditingController();
-  final TextEditingController _panelOutputController = TextEditingController();
-
-  bool _isStep1Valid = false;
-  bool _isStep2Valid = false;
+  bool _isFormValid = false;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _setupService = AccountSetupService();
+
+    _loadInitialUserData();
 
     _nameController.addListener(_validateInputs);
-    _groupNameController.addListener(_validateInputs);
-    _batteryCapacityController.addListener(_validateInputs);
-    _panelOutputController.addListener(_validateInputs);
+    _emailController.addListener(_validateInputs);
+    _contactController.addListener(_validateInputs);
+  }
+
+  Future<void> _loadInitialUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (user.email != null && user.email!.isNotEmpty) {
+      _emailController.text = user.email!;
+    }
+    if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
+      _contactController.text = user.phoneNumber!;
+    }
+    if (user.displayName != null && user.displayName!.isNotEmpty) {
+      _nameController.text = user.displayName!;
+    }
+
+    final profile = await _setupService.fetchUserProfile(user.uid);
+    if (profile != null && mounted && !_isProfileHydrated) {
+      if (_nameController.text.isEmpty && profile['name'] != null) {
+        _nameController.text = profile['name'].toString().trim();
+      }
+      if (_contactController.text.isEmpty && profile['phone'] != null) {
+        _contactController.text = profile['phone'].toString().trim();
+      }
+      if (_emailController.text.isEmpty && profile['email'] != null) {
+        _emailController.text = profile['email'].toString().trim();
+      }
+      _isProfileHydrated = true;
+    }
+
+    _validateInputs();
   }
 
   void _validateInputs() {
-    setState(() {
-      _isStep1Valid = _nameController.text.trim().isNotEmpty;
-      _isStep2Valid =
-          _groupNameController.text.trim().isNotEmpty &&
-          _batteryCapacityController.text.trim().isNotEmpty &&
-          _panelOutputController.text.trim().isNotEmpty;
-    });
-  }
+    final nameVal = _nameController.text.trim();
+    final emailVal = _emailController.text.trim();
 
-  // Pre-fill profile data from FirebaseAuth or Firestore if available
-  Future<void> _loadUserData() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      if (user.email != null && user.email!.isNotEmpty) {
-        _emailController.text = user.email!;
-      }
-      if (user.phoneNumber != null && user.phoneNumber!.isNotEmpty) {
-        _contactController.text = user.phoneNumber!;
-      }
-      if (user.displayName != null && user.displayName!.isNotEmpty) {
-        _nameController.text = user.displayName!;
-      }
+    final isEmailValid = emailVal.isEmpty || _emailRegExp.hasMatch(emailVal);
+    final newFormValid = nameVal.isNotEmpty && isEmailValid;
 
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        if (doc.exists && doc.data() != null) {
-          final data = doc.data()!;
-          if (data['name'] != null &&
-              data['name'].toString().trim().isNotEmpty) {
-            _nameController.text = data['name'];
-          }
-          if (data['phone'] != null &&
-              data['phone'].toString().trim().isNotEmpty) {
-            _contactController.text = data['phone'];
-          }
-          if (data['email'] != null &&
-              data['email'].toString().trim().isNotEmpty) {
-            _emailController.text = data['email'];
-          }
-        }
-      } catch (_) {}
-
-      _validateInputs();
+    if (_isFormValid != newFormValid) {
+      if (!mounted) return;
+      setState(() {
+        _isFormValid = newFormValid;
+      });
     }
   }
 
@@ -105,167 +189,80 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
     _nameController.dispose();
     _emailController.dispose();
     _contactController.dispose();
-    _groupNameController.dispose();
-    _batteryCapacityController.dispose();
-    _panelOutputController.dispose();
+    _setupService.dispose();
     super.dispose();
   }
 
-  // Helper to send HTTP JSON requests to the backend server
-  Future<void> _sendToBackendApi(
-    String endpoint,
-    Map<String, dynamic> payload,
-  ) async {
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 4);
-      final request = await client.postUrl(
-        Uri.parse('$backendBaseUrl$endpoint'),
-      );
-      request.headers.set('content-type', 'application/json');
-      request.add(utf8.encode(jsonEncode(payload)));
-      final response = await request.close();
-      client.close();
-      debugPrint(
-        '[BACKEND SYNC] $endpoint Response status: ${response.statusCode}',
-      );
-    } catch (e) {
-      debugPrint('[BACKEND SYNC WARNING] Failed to connect to $endpoint: $e');
-    }
-  }
-
-  // Save complete profile & group info to Firestore & backend
   Future<void> _onCompleteSetup() async {
-    final user = FirebaseAuth.instance.currentUser;
-    final uid =
-        user?.uid ?? 'local_user_${DateTime.now().millisecondsSinceEpoch}';
+    FocusScope.of(context).unfocus();
 
     setState(() {
       _isLoading = true;
     });
 
     final name = _nameController.text.trim();
+    final user = FirebaseAuth.instance.currentUser;
     final email = _emailController.text.trim().isNotEmpty
         ? _emailController.text.trim()
         : (user?.email ?? '');
     final phone = _contactController.text.trim();
 
-    final groupName = _groupNameController.text.trim();
-    final batteryCapacity =
-        double.tryParse(_batteryCapacityController.text.trim()) ?? 200.0;
-    final combinePanelOutput =
-        double.tryParse(_panelOutputController.text.trim()) ?? 300.0;
-    final groupId = 'group_${uid.length >= 6 ? uid.substring(0, 6) : uid}';
-
     try {
-      // 1. Update FirebaseAuth Display Name
-      if (user != null && name.isNotEmpty) {
-        await user.updateDisplayName(name);
-      }
+      await _setupService.saveUserProfile(
+        name: name,
+        email: email,
+        phone: phone,
+      );
 
-      // 2. Save User Profile to Firestore (users/{uid})
-      final userPayload = {
-        'name': name,
-        'email': email,
-        'phone': phone,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .set(userPayload, SetOptions(merge: true));
+      if (!mounted) return;
 
-      // 3. Save Group/Site Info to Firestore under user subcollection (users/{uid}/groups/{groupId})
-      final groupPayload = {
-        'group_id': groupId,
-        'group_name': groupName,
-        'max_battery_capacity': batteryCapacity,
-        'combine_max_panel_output': combinePanelOutput,
-        'owner_uid': uid,
-        'createdAt': FieldValue.serverTimestamp(),
-      };
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('groups')
-          .doc(groupId)
-          .set(groupPayload, SetOptions(merge: true));
-
-      // 4. Send payloads to Flask Backend Endpoints
-      await _sendToBackendApi('/api/user/setup', {
-        'uid': uid,
-        'name': name,
-        'email': email,
-        'phone': phone,
-      });
-
-      await _sendToBackendApi('/api/group/setup', {
-        'uid': uid,
-        'group_id': groupId,
-        'group_name': groupName,
-        'max_battery_capacity': batteryCapacity,
-        'combine_max_panel_output': combinePanelOutput,
-      });
-    } catch (e) {
-      debugPrint('[SETUP ERROR] $e');
-    }
-
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = false;
-    });
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: primaryGreen,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle_rounded, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Setup complete! Welcome, $name.',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: primaryGreen,
+          shape: _buttonShape,
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Setup complete! Welcome, $name.',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
+      );
 
-    // Dynamic setup metrics passed to home screen without hardcoded static defaults
-    const setupPercentage = 100;
-    const cardCount = 1;
-
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (context) => const HomeScreen(
-          currentPercentage: setupPercentage,
-          cardCount: cardCount,
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) =>
+              const HomeScreen(currentPercentage: 100, cardCount: 1),
         ),
-      ),
-      (route) => false,
-    );
-  }
+        (route) => false,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
 
-  void _onContinuePressed() {
-    if (_currentStep == 1) {
-      if (_isStep1Valid) {
-        setState(() {
-          _currentStep = 2;
-        });
-      }
-    } else {
-      if (_isStep2Valid) {
-        _onCompleteSetup();
-      }
+      final errorMessage = e is TimeoutException
+          ? 'Network request timed out. Please check your connection.'
+          : 'Failed to complete setup. Please try again.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
   }
 
@@ -278,6 +275,7 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           children: [
             Expanded(
               child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24.0,
                   vertical: 32.0,
@@ -285,13 +283,9 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SizedBox(height: 20),
-                    // Header text matching provided images exactly
-                    Text(
-                      _currentStep == 1
-                          ? 'Enter your info.'
-                          : 'Setup your first site info.',
-                      style: const TextStyle(
+                    const Text(
+                      'Enter your info.',
+                      style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
                         color: textPrimaryColor,
@@ -299,96 +293,84 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
                       ),
                     ),
                     const SizedBox(height: 32),
-
-                    // STEP 1: USER INFO FIELDS
-                    if (_currentStep == 1) ...[
-                      _buildCleanTextField(
-                        controller: _nameController,
-                        hintText: 'Name',
-                      ),
-                      const SizedBox(height: 16),
-                      _buildCleanTextField(
-                        controller: _emailController,
-                        hintText: 'Email Address (Optional)',
-                        keyboardType: TextInputType.emailAddress,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildCleanTextField(
-                        controller: _contactController,
-                        hintText: 'Contact Number (Optional)',
-                        keyboardType: TextInputType.phone,
-                      ),
-                    ],
-
-                    // STEP 2: GROUP / SITE INFO FIELDS
-                    if (_currentStep == 2) ...[
-                      _buildCleanTextField(
-                        controller: _groupNameController,
-                        hintText: 'Site Name',
-                      ),
-                      const SizedBox(height: 16),
-                      _buildCleanTextField(
-                        controller: _batteryCapacityController,
-                        hintText: 'Max Battery Capacity',
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildTextField(
+                          controller: _nameController,
+                          hintText: 'Name',
+                          textInputAction: TextInputAction.next,
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildCleanTextField(
-                        controller: _panelOutputController,
-                        hintText: 'Combine Max Panel Output',
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                        const SizedBox(height: 16),
+                        _buildTextField(
+                          controller: _emailController,
+                          hintText: 'Email Address (Optional)',
+                          keyboardType: TextInputType.emailAddress,
+                          textInputAction: TextInputAction.next,
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        _buildTextField(
+                          controller: _contactController,
+                          hintText: 'Contact Number (Optional)',
+                          keyboardType: TextInputType.phone,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) {
+                            if (_isFormValid && !_isLoading) {
+                              _onCompleteSetup();
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
 
-            // BOTTOM ACTION BUTTON (Solid Green Button matching screenshots)
+            // Bottom Action Button
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: SizedBox(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeInOut,
                 width: double.infinity,
                 height: 52,
+                decoration: BoxDecoration(
+                  color: _isFormValid ? primaryGreen : disabledButtonColor,
+                  borderRadius: const BorderRadius.all(Radius.circular(12)),
+                ),
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        ((_currentStep == 1 && _isStep1Valid) ||
-                            (_currentStep == 2 && _isStep2Valid))
-                        ? primaryGreen
-                        : Colors.grey.shade400,
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
                     elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    shape: _buttonShape,
                   ),
                   onPressed: _isLoading
                       ? null
-                      : (((_currentStep == 1 && _isStep1Valid) ||
-                                (_currentStep == 2 && _isStep2Valid))
-                            ? _onContinuePressed
-                            : null),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2.5,
+                      : (_isFormValid ? _onCompleteSetup : null),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    child: _isLoading
+                        ? const SizedBox(
+                            key: ValueKey('loading'),
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : const Text(
+                            'Continue',
+                            key: ValueKey('text'),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
-                        )
-                      : const Text(
-                          'Continue',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
+                  ),
                 ),
               ),
             ),
@@ -398,14 +380,22 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
     );
   }
 
-  Widget _buildCleanTextField({
+  Widget _buildTextField({
     required TextEditingController controller,
     required String hintText,
     TextInputType keyboardType = TextInputType.text,
+    TextInputAction textInputAction = TextInputAction.next,
+    bool enableSuggestions = true,
+    bool autocorrect = true,
+    ValueChanged<String>? onSubmitted,
   }) {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      enableSuggestions: enableSuggestions,
+      autocorrect: autocorrect,
+      onSubmitted: onSubmitted,
       style: const TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w500,
@@ -413,8 +403,8 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
       ),
       decoration: InputDecoration(
         hintText: hintText,
-        hintStyle: TextStyle(
-          color: Colors.grey.shade600,
+        hintStyle: const TextStyle(
+          color: hintTextColor,
           fontSize: 14,
           fontWeight: FontWeight.w400,
         ),
@@ -424,18 +414,9 @@ class _AccountSetupScreenState extends State<AccountSetupScreen> {
           horizontal: 16,
           vertical: 18,
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: primaryGreen, width: 1.5),
-        ),
+        border: _defaultBorder,
+        enabledBorder: _defaultBorder,
+        focusedBorder: _focusedBorder,
       ),
     );
   }

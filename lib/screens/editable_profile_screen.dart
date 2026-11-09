@@ -345,164 +345,294 @@ class _EditableProfileScreenState extends State<EditableProfileScreen> {
           padding: EdgeInsets.zero,
           children: [
             _HeaderWidget(topPadding: topPadding),
-            if (_isFetching)
-              const Padding(
-                padding: EdgeInsets.only(top: 80.0),
-                child: Center(
-                  child: CircularProgressIndicator(
-                    color: EditableProfileScreen.midGreen,
-                  ),
-                ),
-              )
-            else
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: AutofillGroup(
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Edit Details',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: _isFetching
+                  ? const Padding(
+                      key: ValueKey('fetching_loader'),
+                      padding: EdgeInsets.only(top: 80.0),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: EditableProfileScreen.midGreen,
                         ),
-                        const SizedBox(height: 8),
-                        Card(
-                          elevation: 1,
-                          margin: EdgeInsets.zero,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const _InputLabel(text: 'FULL NAME'),
-                                const SizedBox(height: 6),
-                                TextFormField(
-                                  controller: _nameController,
-                                  textCapitalization: TextCapitalization.words,
-                                  textInputAction: TextInputAction.next,
-                                  autofillHints: const [AutofillHints.name],
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                  decoration: _buildInputDecoration(
-                                    hint: 'Full Name',
-                                    prefixIcon: CupertinoIcons.person_fill,
-                                  ),
-                                  validator: (val) =>
-                                      val == null || val.trim().isEmpty
-                                      ? 'Name cannot be empty'
-                                      : null,
-                                ),
-                                const SizedBox(height: 16),
-                                const _InputLabel(text: 'EMAIL ADDRESS'),
-                                const SizedBox(height: 6),
-                                TextFormField(
-                                  controller: _emailController,
-                                  enabled: _isEmailEditable,
-                                  keyboardType: TextInputType.emailAddress,
-                                  autocorrect: false,
-                                  enableSuggestions: false,
-                                  textInputAction: TextInputAction.next,
-                                  autofillHints: const [AutofillHints.email],
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                    color: _isEmailEditable
-                                        ? Colors.black
-                                        : Colors.grey,
-                                  ),
-                                  decoration: _buildInputDecoration(
-                                    hint: _isEmailEditable
-                                        ? 'Email Address'
-                                        : 'Managed by social login',
-                                    prefixIcon: CupertinoIcons.mail_solid,
-                                  ),
-                                  validator: (val) {
-                                    if (val == null || val.trim().isEmpty) {
-                                      return 'Email cannot be empty';
-                                    }
-                                    if (!_emailRegex.hasMatch(val.trim())) {
-                                      return 'Please enter a valid email address';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 16),
-                                const _InputLabel(text: 'PHONE NUMBER'),
-                                const SizedBox(height: 6),
-                                TextFormField(
-                                  controller: _phoneController,
-                                  keyboardType: TextInputType.phone,
-                                  textInputAction: TextInputAction.done,
-                                  onFieldSubmitted: (_) => _handleSave(),
-                                  autofillHints: const [
-                                    AutofillHints.telephoneNumber,
-                                  ],
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                  decoration: _buildInputDecoration(
-                                    hint: 'Phone Number',
-                                    prefixIcon: CupertinoIcons.phone_fill,
-                                  ),
-                                  validator: (val) =>
-                                      val == null || val.trim().isEmpty
-                                      ? 'Phone number cannot be empty'
-                                      : null,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: EditableProfileScreen.darkGreen,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: _isLoading ? null : _handleSave,
-                            child: _isLoading
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text(
-                                    'Save Profile Changes',
+                      ),
+                    )
+                  : Padding(
+                      key: const ValueKey('profile_form'),
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: AutofillGroup(
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Edit Details',
                                     style: TextStyle(
+                                      fontSize: 20,
                                       fontWeight: FontWeight.bold,
-                                      fontSize: 15,
                                     ),
                                   ),
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _isFormDirtyNotifier,
+                                    builder: (context, isDirty, _) {
+                                      return AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 250,
+                                        ),
+                                        transitionBuilder: (child, animation) =>
+                                            FadeTransition(
+                                              opacity: animation,
+                                              child: ScaleTransition(
+                                                scale: animation,
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: isDirty
+                                            ? Container(
+                                                key: const ValueKey(
+                                                  'unsaved_pill',
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 4,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: EditableProfileScreen
+                                                      .midGreen
+                                                      .withOpacity(0.12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                  border: Border.all(
+                                                    color: EditableProfileScreen
+                                                        .midGreen,
+                                                    width: 1,
+                                                  ),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: const [
+                                                    Icon(
+                                                      CupertinoIcons
+                                                          .pencil_circle_fill,
+                                                      size: 12,
+                                                      color:
+                                                          EditableProfileScreen
+                                                              .midGreen,
+                                                    ),
+                                                    SizedBox(width: 4),
+                                                    Text(
+                                                      'Unsaved Changes',
+                                                      style: TextStyle(
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        color:
+                                                            EditableProfileScreen
+                                                                .darkGreen,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              )
+                                            : const SizedBox.shrink(
+                                                key: ValueKey('no_pill'),
+                                              ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Card(
+                                elevation: 1,
+                                margin: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const _InputLabel(text: 'FULL NAME'),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: _nameController,
+                                        textCapitalization:
+                                            TextCapitalization.words,
+                                        textInputAction: TextInputAction.next,
+                                        autofillHints: const [
+                                          AutofillHints.name,
+                                        ],
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                        decoration: _buildInputDecoration(
+                                          hint: 'Full Name',
+                                          prefixIcon:
+                                              CupertinoIcons.person_fill,
+                                        ),
+                                        validator: (val) =>
+                                            val == null || val.trim().isEmpty
+                                            ? 'Name cannot be empty'
+                                            : null,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const _InputLabel(text: 'EMAIL ADDRESS'),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: _emailController,
+                                        enabled: _isEmailEditable,
+                                        keyboardType:
+                                            TextInputType.emailAddress,
+                                        autocorrect: false,
+                                        enableSuggestions: false,
+                                        textInputAction: TextInputAction.next,
+                                        autofillHints: const [
+                                          AutofillHints.email,
+                                        ],
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                          color: _isEmailEditable
+                                              ? Colors.black
+                                              : Colors.grey,
+                                        ),
+                                        decoration: _buildInputDecoration(
+                                          hint: _isEmailEditable
+                                              ? 'Email Address'
+                                              : 'Managed by social login',
+                                          prefixIcon: CupertinoIcons.mail_solid,
+                                        ),
+                                        validator: (val) {
+                                          if (val == null ||
+                                              val.trim().isEmpty) {
+                                            return 'Email cannot be empty';
+                                          }
+                                          if (!_emailRegex.hasMatch(
+                                            val.trim(),
+                                          )) {
+                                            return 'Please enter a valid email address';
+                                          }
+                                          return null;
+                                        },
+                                      ),
+                                      const SizedBox(height: 16),
+                                      const _InputLabel(text: 'PHONE NUMBER'),
+                                      const SizedBox(height: 6),
+                                      TextFormField(
+                                        controller: _phoneController,
+                                        keyboardType: TextInputType.phone,
+                                        textInputAction: TextInputAction.done,
+                                        onFieldSubmitted: (_) => _handleSave(),
+                                        autofillHints: const [
+                                          AutofillHints.telephoneNumber,
+                                        ],
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                        decoration: _buildInputDecoration(
+                                          hint: 'Phone Number',
+                                          prefixIcon: CupertinoIcons.phone_fill,
+                                        ),
+                                        validator: (val) =>
+                                            val == null || val.trim().isEmpty
+                                            ? 'Phone number cannot be empty'
+                                            : null,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              ValueListenableBuilder<bool>(
+                                valueListenable: _isFormDirtyNotifier,
+                                builder: (context, isDirty, _) {
+                                  return AnimatedContainer(
+                                    duration: const Duration(milliseconds: 250),
+                                    curve: Curves.easeInOut,
+                                    width: double.infinity,
+                                    height: 50,
+                                    decoration: BoxDecoration(
+                                      color: isDirty
+                                          ? EditableProfileScreen.darkGreen
+                                          : EditableProfileScreen.darkGreen
+                                                .withOpacity(0.65),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.transparent,
+                                        shadowColor: Colors.transparent,
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      onPressed: _isLoading
+                                          ? null
+                                          : _handleSave,
+                                      child: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 200,
+                                        ),
+                                        transitionBuilder: (child, animation) =>
+                                            FadeTransition(
+                                              opacity: animation,
+                                              child: ScaleTransition(
+                                                scale: animation,
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: _isLoading
+                                            ? const SizedBox(
+                                                key: ValueKey(
+                                                  'loading_spinner',
+                                                ),
+                                                height: 20,
+                                                width: 20,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
+                                              )
+                                            : const Text(
+                                                'Save Profile Changes',
+                                                key: ValueKey('save_text'),
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 32),
+                            ],
                           ),
                         ),
-                        const SizedBox(height: 32),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-              ),
+            ),
           ],
         ),
       ),
@@ -580,11 +710,23 @@ class _HeaderWidget extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          IconButton(
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            icon: const Icon(CupertinoIcons.chevron_left, color: Colors.white),
-            onPressed: () => Navigator.of(context).maybePop(),
+          GestureDetector(
+            onTap: () => Navigator.of(context).maybePop(),
+            child: Container(
+              height: 36,
+              width: 36,
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF20341E), width: 1.5),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(
+                CupertinoIcons.chevron_left,
+                size: 18,
+                color: Colors.white,
+              ),
+            ),
           ),
           const SizedBox(height: 20),
           const Text(

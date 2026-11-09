@@ -398,14 +398,28 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
               ),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text(
-                  _selectedTab == 0
-                      ? SlickLoginScreen.titleSignIn
-                      : SlickLoginScreen.titleSignUp,
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(
+                        begin: const Offset(0.0, -0.2),
+                        end: Offset.zero,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: Text(
+                    _selectedTab == 0
+                        ? SlickLoginScreen.titleSignIn
+                        : SlickLoginScreen.titleSignUp,
+                    key: ValueKey<int>(_selectedTab),
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -413,115 +427,93 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
 
             // WHITE CURVED BODY CONTAINER
             Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(36),
-                    topRight: Radius.circular(36),
+              child: TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOutCubic,
+                tween: Tween<double>(begin: 0.0, end: 1.0),
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - value) * 16),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: Radius.circular(36),
+                      topRight: Radius.circular(36),
+                    ),
                   ),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(28.0),
-                  child: AutofillGroup(
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(height: 8),
-                          // HEADER TEXT
-                          const Text(
-                            SlickLoginScreen.welcomeBackText,
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black,
-                            ),
-                          ),
-                          const SizedBox(height: 28),
-
-                          // EMAIL FIELD
-                          TextFormField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            textInputAction: TextInputAction.next,
-                            autofillHints: const [AutofillHints.email],
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w500,
-                              color: Colors.black87,
-                              fontSize: 14,
-                            ),
-                            decoration: _buildInputDecoration(
-                              hint: SlickLoginScreen.hintEmail,
-                            ),
-                            validator: _validateEmail,
-                          ),
-                          const SizedBox(height: 16),
-
-                          // PASSWORD FIELD
-                          TextFormField(
-                            controller: _passwordController,
-                            obscureText: !_isPasswordVisible,
-                            textInputAction: _selectedTab == 0
-                                ? TextInputAction.done
-                                : TextInputAction.next,
-                            autofillHints: [
-                              _selectedTab == 0
-                                  ? AutofillHints.password
-                                  : AutofillHints.newPassword,
-                            ],
-                            onFieldSubmitted: (_) {
-                              if (_selectedTab == 0) _handleAuth();
-                            },
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w500,
-                              color: Colors.black87,
-                              fontSize: 14,
-                            ),
-                            decoration: _buildInputDecoration(
-                              hint: SlickLoginScreen.hintPassword,
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _isPasswordVisible
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                  color: Colors.black87,
-                                  size: 22,
-                                ),
-                                onPressed: () {
-                                  setState(
-                                    () => _isPasswordVisible =
-                                        !_isPasswordVisible,
-                                  );
-                                },
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(28.0),
+                    child: AutofillGroup(
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 8),
+                            // HEADER TEXT
+                            const Text(
+                              SlickLoginScreen.welcomeBackText,
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black,
                               ),
                             ),
-                            validator: _validatePassword,
-                          ),
+                            const SizedBox(height: 28),
 
-                          // CONFIRM PASSWORD FIELD (Shown only during registration)
-                          if (_selectedTab == 1) ...[
-                            const SizedBox(height: 16),
+                            // EMAIL FIELD
                             TextFormField(
-                              controller: _confirmPasswordController,
-                              obscureText: !_isConfirmPasswordVisible,
-                              textInputAction: TextInputAction.done,
-                              autofillHints: const [AutofillHints.newPassword],
-                              onFieldSubmitted: (_) => _handleAuth(),
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              autocorrect: false,
+                              enableSuggestions: false,
+                              textInputAction: TextInputAction.next,
+                              autofillHints: const [AutofillHints.email],
                               style: const TextStyle(
                                 fontWeight: FontWeight.w500,
                                 color: Colors.black87,
                                 fontSize: 14,
                               ),
                               decoration: _buildInputDecoration(
-                                hint: SlickLoginScreen.hintConfirmPassword,
+                                hint: SlickLoginScreen.hintEmail,
+                              ),
+                              validator: _validateEmail,
+                            ),
+                            const SizedBox(height: 16),
+
+                            // PASSWORD FIELD
+                            TextFormField(
+                              controller: _passwordController,
+                              obscureText: !_isPasswordVisible,
+                              textInputAction: _selectedTab == 0
+                                  ? TextInputAction.done
+                                  : TextInputAction.next,
+                              autofillHints: [
+                                _selectedTab == 0
+                                    ? AutofillHints.password
+                                    : AutofillHints.newPassword,
+                              ],
+                              onFieldSubmitted: (_) {
+                                if (_selectedTab == 0) _handleAuth();
+                              },
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                color: Colors.black87,
+                                fontSize: 14,
+                              ),
+                              decoration: _buildInputDecoration(
+                                hint: SlickLoginScreen.hintPassword,
                                 suffixIcon: IconButton(
                                   icon: Icon(
-                                    _isConfirmPasswordVisible
+                                    _isPasswordVisible
                                         ? Icons.visibility_outlined
                                         : Icons.visibility_off_outlined,
                                     color: Colors.black87,
@@ -529,185 +521,277 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
                                   ),
                                   onPressed: () {
                                     setState(
-                                      () => _isConfirmPasswordVisible =
-                                          !_isConfirmPasswordVisible,
+                                      () => _isPasswordVisible =
+                                          !_isPasswordVisible,
                                     );
                                   },
                                 ),
                               ),
-                              validator: _validateConfirmPassword,
+                              validator: _validatePassword,
                             ),
-                          ],
 
-                          const SizedBox(height: 12),
-
-                          // REMEMBER ME & FORGOT PASSWORD ROW
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: Checkbox(
-                                      value: _rememberMe,
-                                      activeColor: SlickLoginScreen.buttonGreen,
-                                      side: const BorderSide(
-                                        color: Colors.black38,
-                                        width: 1.5,
+                            // CONFIRM PASSWORD FIELD (Shown only during registration with smooth expand/collapse)
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOutCubic,
+                              child: _selectedTab == 1
+                                  ? Column(
+                                      key: const ValueKey(
+                                        'confirm_password_field',
                                       ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                      onChanged: (bool? value) {
-                                        setState(() {
-                                          _rememberMe = value ?? false;
-                                        });
-                                      },
+                                      children: [
+                                        const SizedBox(height: 16),
+                                        TextFormField(
+                                          controller:
+                                              _confirmPasswordController,
+                                          obscureText:
+                                              !_isConfirmPasswordVisible,
+                                          textInputAction: TextInputAction.done,
+                                          autofillHints: const [
+                                            AutofillHints.newPassword,
+                                          ],
+                                          onFieldSubmitted: (_) =>
+                                              _handleAuth(),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.black87,
+                                            fontSize: 14,
+                                          ),
+                                          decoration: _buildInputDecoration(
+                                            hint: SlickLoginScreen
+                                                .hintConfirmPassword,
+                                            suffixIcon: IconButton(
+                                              icon: Icon(
+                                                _isConfirmPasswordVisible
+                                                    ? Icons.visibility_outlined
+                                                    : Icons
+                                                          .visibility_off_outlined,
+                                                color: Colors.black87,
+                                                size: 22,
+                                              ),
+                                              onPressed: () {
+                                                setState(
+                                                  () => _isConfirmPasswordVisible =
+                                                      !_isConfirmPasswordVisible,
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                          validator: _validateConfirmPassword,
+                                        ),
+                                      ],
+                                    )
+                                  : const SizedBox.shrink(
+                                      key: ValueKey('confirm_password_empty'),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    SlickLoginScreen.rememberMeText,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              GestureDetector(
-                                onTap: _navigateToForgotPassword,
-                                child: const Text(
-                                  SlickLoginScreen.forgotPasswordText,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: SlickLoginScreen.buttonGreen,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
 
-                          const SizedBox(height: 32),
+                            const SizedBox(height: 12),
 
-                          // ACTION BUTTON
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: SlickLoginScreen.buttonGreen,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              onPressed: _isLoading ? null : _handleAuth,
-                              child: _isLoading
-                                  ? const SizedBox(
+                            // REMEMBER ME & FORGOT PASSWORD ROW
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    SizedBox(
                                       height: 20,
                                       width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.5,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : Text(
-                                      _selectedTab == 0
-                                          ? SlickLoginScreen.buttonLogIn
-                                          : SlickLoginScreen
-                                                .buttonCreateAccount,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // BOTTOM SEGMENTED TAB SWITCHER
-                          Container(
-                            height: 48,
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(
-                              color: SlickLoginScreen.inputBg,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      if (_selectedTab != 0) {
-                                        setState(() {
-                                          _selectedTab = 0;
-                                          _formKey.currentState?.reset();
-                                        });
-                                      }
-                                    },
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: _selectedTab == 0
-                                            ? Colors.white
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        SlickLoginScreen.titleSignIn,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: _selectedTab == 0
-                                              ? FontWeight.bold
-                                              : FontWeight.w500,
-                                          color: Colors.black87,
+                                      child: Checkbox(
+                                        value: _rememberMe,
+                                        activeColor:
+                                            SlickLoginScreen.buttonGreen,
+                                        side: const BorderSide(
+                                          color: Colors.black38,
+                                          width: 1.5,
                                         ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            2,
+                                          ),
+                                        ),
+                                        onChanged: (bool? value) {
+                                          setState(() {
+                                            _rememberMe = value ?? false;
+                                          });
+                                        },
                                       ),
                                     ),
-                                  ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      SlickLoginScreen.rememberMeText,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: () {
-                                      if (_selectedTab != 1) {
-                                        setState(() {
-                                          _selectedTab = 1;
-                                          _formKey.currentState?.reset();
-                                        });
-                                      }
-                                    },
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        color: _selectedTab == 1
-                                            ? Colors.white
-                                            : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        SlickLoginScreen.titleSignUp,
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: _selectedTab == 1
-                                              ? FontWeight.bold
-                                              : FontWeight.w500,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
+                                GestureDetector(
+                                  onTap: _navigateToForgotPassword,
+                                  child: const Text(
+                                    SlickLoginScreen.forgotPasswordText,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: SlickLoginScreen.buttonGreen,
                                     ),
                                   ),
                                 ),
                               ],
                             ),
-                          ),
-                        ],
+
+                            const SizedBox(height: 32),
+
+                            // ACTION BUTTON
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: SlickLoginScreen.buttonGreen,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: _isLoading ? null : _handleAuth,
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  transitionBuilder: (child, animation) =>
+                                      FadeTransition(
+                                        opacity: animation,
+                                        child: ScaleTransition(
+                                          scale: animation,
+                                          child: child,
+                                        ),
+                                      ),
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                          key: ValueKey('loading_spinner'),
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.5,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : Text(
+                                          _selectedTab == 0
+                                              ? SlickLoginScreen.buttonLogIn
+                                              : SlickLoginScreen
+                                                    .buttonCreateAccount,
+                                          key: ValueKey<int>(_selectedTab),
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+
+                            // BOTTOM SEGMENTED TAB SWITCHER
+                            Container(
+                              height: 48,
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: SlickLoginScreen.inputBg,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Stack(
+                                children: [
+                                  AnimatedAlign(
+                                    duration: const Duration(milliseconds: 250),
+                                    curve: Curves.easeInOutCubic,
+                                    alignment: _selectedTab == 0
+                                        ? Alignment.centerLeft
+                                        : Alignment.centerRight,
+                                    child: FractionallySizedBox(
+                                      widthFactor: 0.5,
+                                      heightFactor: 1.0,
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.05,
+                                              ),
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            if (_selectedTab != 0) {
+                                              setState(() {
+                                                _selectedTab = 0;
+                                                _formKey.currentState?.reset();
+                                              });
+                                            }
+                                          },
+                                          child: Center(
+                                            child: Text(
+                                              SlickLoginScreen.titleSignIn,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: _selectedTab == 0
+                                                    ? FontWeight.bold
+                                                    : FontWeight.w500,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: () {
+                                            if (_selectedTab != 1) {
+                                              setState(() {
+                                                _selectedTab = 1;
+                                                _formKey.currentState?.reset();
+                                              });
+                                            }
+                                          },
+                                          child: Center(
+                                            child: Text(
+                                              SlickLoginScreen.titleSignUp,
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                fontWeight: _selectedTab == 1
+                                                    ? FontWeight.bold
+                                                    : FontWeight.w500,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

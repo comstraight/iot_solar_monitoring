@@ -138,10 +138,24 @@ class ForgotPasswordScreen extends StatefulWidget {
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  late final FocusNode _emailFocusNode;
   bool _isLoading = false;
 
   @override
+  void initState() {
+    super.initState();
+    _emailFocusNode = FocusNode();
+    _emailFocusNode.addListener(_onFocusChange);
+  }
+
+  void _onFocusChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _emailFocusNode.removeListener(_onFocusChange);
+    _emailFocusNode.dispose();
     _emailController.dispose();
     super.dispose();
   }
@@ -236,173 +250,221 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               horizontal: _AppDimensions.pagePaddingHorizontal,
               vertical: _AppDimensions.pagePaddingVertical,
             ),
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(_AppDimensions.cardPadding),
-              decoration: BoxDecoration(
-                color: _AppColors.cardBg,
-                borderRadius: BorderRadius.circular(
-                  _AppDimensions.cardBorderRadius,
-                ),
-                border: Border.all(
-                  color: Colors.black.withValues(
-                    alpha: _AppDimensions.cardBorderAlpha,
+            child: TweenAnimationBuilder<double>(
+              duration: const Duration(milliseconds: 450),
+              curve: Curves.easeOutCubic,
+              tween: Tween<double>(begin: 0.0, end: 1.0),
+              builder: (context, value, child) {
+                return Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - value) * 16),
+                    child: child,
                   ),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: _AppColors.darkGreen.withValues(
-                      alpha: _AppDimensions.shadowAlpha,
+                );
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(_AppDimensions.cardPadding),
+                decoration: BoxDecoration(
+                  color: _AppColors.cardBg,
+                  borderRadius: BorderRadius.circular(
+                    _AppDimensions.cardBorderRadius,
+                  ),
+                  border: Border.all(
+                    color: Colors.black.withValues(
+                      alpha: _AppDimensions.cardBorderAlpha,
                     ),
-                    blurRadius: _AppDimensions.shadowBlurRadius,
-                    offset: _AppDimensions.shadowOffset,
                   ),
-                ],
-              ),
-              child: AutofillGroup(
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        _AppStrings.resetPasswordTitle,
-                        style: _AppStyles.title,
+                  boxShadow: [
+                    BoxShadow(
+                      color: _AppColors.darkGreen.withValues(
+                        alpha: _AppDimensions.shadowAlpha,
                       ),
-                      const SizedBox(height: _AppDimensions.spacingExtraSmall),
-                      Text(
-                        _AppStrings.resetPasswordSubtitle,
-                        style: _AppStyles.subtitle,
-                      ),
-                      const SizedBox(height: _AppDimensions.spacingLarge),
-
-                      // EMAIL FIELD
-                      const Text(
-                        _AppStrings.emailFieldLabel,
-                        style: _AppStyles.fieldLabel,
-                      ),
-                      const SizedBox(height: _AppDimensions.spacingSmall),
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        autocorrect: false,
-                        enableSuggestions: false,
-                        textInputAction: TextInputAction.done,
-                        autofillHints: const [AutofillHints.email],
-                        onFieldSubmitted: (_) => _handleResetPassword(),
-                        style: _AppStyles.inputText,
-                        decoration: InputDecoration(
-                          hintText: _AppStrings.emailFieldHint,
-                          hintStyle: _AppStyles.hintText,
-                          prefixIcon: const Icon(
-                            Icons.mail_outline_rounded,
-                            color: _AppColors.iconGreen,
-                            size: _AppDimensions.prefixIconSize,
-                          ),
-                          filled: true,
-                          fillColor: _AppColors.inputBg,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: _AppDimensions.pagePaddingVertical,
-                            vertical: _AppDimensions.pagePaddingVertical,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              _AppDimensions.inputBorderRadius,
-                            ),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              _AppDimensions.inputBorderRadius,
-                            ),
-                            borderSide: BorderSide.none,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              _AppDimensions.inputBorderRadius,
-                            ),
-                            borderSide: const BorderSide(
-                              color: _AppColors.midGreen,
-                              width: _AppDimensions.inputBorderWidth,
-                            ),
-                          ),
-                          errorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              _AppDimensions.inputBorderRadius,
-                            ),
-                            borderSide: const BorderSide(
-                              color: _AppColors.borderError,
-                              width: _AppDimensions.inputBorderWidth,
-                            ),
-                          ),
-                          focusedErrorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                              _AppDimensions.inputBorderRadius,
-                            ),
-                            borderSide: const BorderSide(
-                              color: _AppColors.borderError,
-                              width: _AppDimensions.inputBorderWidth,
-                            ),
-                          ),
+                      blurRadius: _AppDimensions.shadowBlurRadius,
+                      offset: _AppDimensions.shadowOffset,
+                    ),
+                  ],
+                ),
+                child: AutofillGroup(
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          _AppStrings.resetPasswordTitle,
+                          style: _AppStyles.title,
                         ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return _AppStrings.emptyEmailMessage;
-                          }
-                          if (!_AppRegex.email.hasMatch(val.trim())) {
-                            return _AppStrings.invalidEmailMessage;
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: _AppDimensions.spacingExtraLarge),
+                        const SizedBox(
+                          height: _AppDimensions.spacingExtraSmall,
+                        ),
+                        Text(
+                          _AppStrings.resetPasswordSubtitle,
+                          style: _AppStyles.subtitle,
+                        ),
+                        const SizedBox(height: _AppDimensions.spacingLarge),
 
-                      // SEND EMAIL BUTTON
-                      SizedBox(
-                        width: double.infinity,
-                        height: _AppDimensions.buttonHeight,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _AppColors.darkGreen,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
+                        // EMAIL FIELD
+                        const Text(
+                          _AppStrings.emailFieldLabel,
+                          style: _AppStyles.fieldLabel,
+                        ),
+                        const SizedBox(height: _AppDimensions.spacingSmall),
+                        TextFormField(
+                          controller: _emailController,
+                          focusNode: _emailFocusNode,
+                          keyboardType: TextInputType.emailAddress,
+                          autocorrect: false,
+                          enableSuggestions: false,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.email],
+                          onFieldSubmitted: (_) => _handleResetPassword(),
+                          style: _AppStyles.inputText,
+                          decoration: InputDecoration(
+                            hintText: _AppStrings.emailFieldHint,
+                            hintStyle: _AppStyles.hintText,
+                            prefixIcon: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 200),
+                              child: Icon(
+                                Icons.mail_outline_rounded,
+                                key: ValueKey<bool>(_emailFocusNode.hasFocus),
+                                color: _emailFocusNode.hasFocus
+                                    ? _AppColors.midGreen
+                                    : _AppColors.iconGreen,
+                                size: _AppDimensions.prefixIconSize,
+                              ),
+                            ),
+                            filled: true,
+                            fillColor: _AppColors.inputBg,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: _AppDimensions.pagePaddingVertical,
+                              vertical: _AppDimensions.pagePaddingVertical,
+                            ),
+                            border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(
-                                _AppDimensions.buttonBorderRadius,
+                                _AppDimensions.inputBorderRadius,
+                              ),
+                              borderSide: BorderSide.none,
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                _AppDimensions.inputBorderRadius,
+                              ),
+                              borderSide: BorderSide.none,
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                _AppDimensions.inputBorderRadius,
+                              ),
+                              borderSide: const BorderSide(
+                                color: _AppColors.midGreen,
+                                width: _AppDimensions.inputBorderWidth,
+                              ),
+                            ),
+                            errorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                _AppDimensions.inputBorderRadius,
+                              ),
+                              borderSide: const BorderSide(
+                                color: _AppColors.borderError,
+                                width: _AppDimensions.inputBorderWidth,
+                              ),
+                            ),
+                            focusedErrorBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                _AppDimensions.inputBorderRadius,
+                              ),
+                              borderSide: const BorderSide(
+                                color: _AppColors.borderError,
+                                width: _AppDimensions.inputBorderWidth,
                               ),
                             ),
                           ),
-                          onPressed: _isLoading ? null : _handleResetPassword,
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: _AppDimensions.progressIndicatorSize,
-                                  width: _AppDimensions.progressIndicatorSize,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth:
-                                        _AppDimensions.progressStrokeWidth,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      _AppStrings.sendResetButtonText,
-                                      style: _AppStyles.buttonText,
-                                    ),
-                                    SizedBox(
-                                      width: _AppDimensions.spacingSmall,
-                                    ),
-                                    Icon(
-                                      Icons.arrow_forward_rounded,
-                                      size: _AppDimensions.arrowIconSize,
-                                    ),
-                                  ],
-                                ),
+                          validator: (val) {
+                            if (val == null || val.trim().isEmpty) {
+                              return _AppStrings.emptyEmailMessage;
+                            }
+                            if (!_AppRegex.email.hasMatch(val.trim())) {
+                              return _AppStrings.invalidEmailMessage;
+                            }
+                            return null;
+                          },
                         ),
-                      ),
-                    ],
+                        const SizedBox(
+                          height: _AppDimensions.spacingExtraLarge,
+                        ),
+
+                        // SEND EMAIL BUTTON
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeInOut,
+                          width: double.infinity,
+                          height: _AppDimensions.buttonHeight,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                              _AppDimensions.buttonBorderRadius,
+                            ),
+                          ),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _AppColors.darkGreen,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                  _AppDimensions.buttonBorderRadius,
+                                ),
+                              ),
+                            ),
+                            onPressed: _isLoading ? null : _handleResetPassword,
+                            child: AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 200),
+                              transitionBuilder: (child, animation) =>
+                                  FadeTransition(
+                                    opacity: animation,
+                                    child: ScaleTransition(
+                                      scale: animation,
+                                      child: child,
+                                    ),
+                                  ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      key: ValueKey('loading_spinner'),
+                                      height:
+                                          _AppDimensions.progressIndicatorSize,
+                                      width:
+                                          _AppDimensions.progressIndicatorSize,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth:
+                                            _AppDimensions.progressStrokeWidth,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Row(
+                                      key: ValueKey('button_content'),
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        Text(
+                                          _AppStrings.sendResetButtonText,
+                                          style: _AppStyles.buttonText,
+                                        ),
+                                        SizedBox(
+                                          width: _AppDimensions.spacingSmall,
+                                        ),
+                                        Icon(
+                                          Icons.arrow_forward_rounded,
+                                          size: _AppDimensions.arrowIconSize,
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

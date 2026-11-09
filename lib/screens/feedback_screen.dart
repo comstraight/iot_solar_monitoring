@@ -211,10 +211,18 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 color: FeedbackScreen.lightGreenBg,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                CupertinoIcons.checkmark_alt,
-                color: FeedbackScreen.primaryGreen,
-                size: 34,
+              child: TweenAnimationBuilder<double>(
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.elasticOut,
+                tween: Tween<double>(begin: 0.0, end: 1.0),
+                builder: (context, value, child) {
+                  return Transform.scale(scale: value, child: child);
+                },
+                child: const Icon(
+                  CupertinoIcons.checkmark_alt,
+                  color: FeedbackScreen.primaryGreen,
+                  size: 34,
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -411,41 +419,45 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                         runSpacing: 10,
                         children: List.generate(_categories.length, (index) {
                           final isSelected = _selectedCategoryIndex == index;
-                          return ChoiceChip(
-                            label: Text(_categories[index]),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              if (selected) {
-                                setState(() {
-                                  _selectedCategoryIndex = index;
-                                });
-                                _updateDirtyState();
-                              }
-                            },
-                            selectedColor: FeedbackScreen.lightGreenBg,
-                            backgroundColor: FeedbackScreen.chipBgColor,
-                            labelStyle: TextStyle(
-                              color: isSelected
-                                  ? FeedbackScreen.primaryGreen
-                                  : FeedbackScreen.textMuted,
-                              fontSize: 13,
-                              fontWeight: isSelected
-                                  ? FontWeight.bold
-                                  : FontWeight.w500,
-                            ),
-                            side: BorderSide(
-                              color: isSelected
-                                  ? FeedbackScreen.primaryGreen
-                                  : FeedbackScreen.borderColor,
-                              width: isSelected ? 1.5 : 1,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            showCheckmark: false,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeInOut,
+                            child: ChoiceChip(
+                              label: Text(_categories[index]),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                if (selected) {
+                                  setState(() {
+                                    _selectedCategoryIndex = index;
+                                  });
+                                  _updateDirtyState();
+                                }
+                              },
+                              selectedColor: FeedbackScreen.lightGreenBg,
+                              backgroundColor: FeedbackScreen.chipBgColor,
+                              labelStyle: TextStyle(
+                                color: isSelected
+                                    ? FeedbackScreen.primaryGreen
+                                    : FeedbackScreen.textMuted,
+                                fontSize: 13,
+                                fontWeight: isSelected
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
+                              ),
+                              side: BorderSide(
+                                color: isSelected
+                                    ? FeedbackScreen.primaryGreen
+                                    : FeedbackScreen.borderColor,
+                                width: isSelected ? 1.5 : 1,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              showCheckmark: false,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                             ),
                           );
                         }),
@@ -508,26 +520,44 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       ValueListenableBuilder<int>(
                         valueListenable: _charCountNotifier,
                         builder: (context, length, _) {
-                          if (length > 0 &&
-                              length < FeedbackScreen.minMessageLength) {
-                            final remaining =
-                                FeedbackScreen.minMessageLength - length;
-                            return Padding(
-                              padding: const EdgeInsets.only(
-                                top: 6.0,
-                                left: 4.0,
-                              ),
-                              child: Text(
-                                'Please enter at least $remaining more character${remaining == 1 ? '' : 's'}',
-                                style: TextStyle(
-                                  color: Colors.amber[900],
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
+                          final showWarning =
+                              length > 0 &&
+                              length < FeedbackScreen.minMessageLength;
+                          return AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 250),
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0.0, -0.2),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
                                 ),
-                              ),
-                            );
-                          }
-                          return const SizedBox.shrink();
+                            child: showWarning
+                                ? Padding(
+                                    key: ValueKey<int>(
+                                      FeedbackScreen.minMessageLength - length,
+                                    ),
+                                    padding: const EdgeInsets.only(
+                                      top: 6.0,
+                                      left: 4.0,
+                                    ),
+                                    child: Text(
+                                      'Please enter at least ${FeedbackScreen.minMessageLength - length} more character${(FeedbackScreen.minMessageLength - length) == 1 ? '' : 's'}',
+                                      style: TextStyle(
+                                        color: Colors.amber[900],
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(
+                                    key: ValueKey('no_char_warning'),
+                                  ),
+                          );
                         },
                       ),
 
@@ -581,20 +611,39 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                       ValueListenableBuilder<bool>(
                         valueListenable: _isEmailValidNotifier,
                         builder: (context, isValid, _) {
-                          if (!isValid) {
-                            return const Padding(
-                              padding: EdgeInsets.only(top: 6.0, left: 4.0),
-                              child: Text(
-                                'Please enter a valid email address',
-                                style: TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                          return AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 250),
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0.0, -0.2),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
                                 ),
-                              ),
-                            );
-                          }
-                          return const SizedBox.shrink();
+                            child: !isValid
+                                ? const Padding(
+                                    key: ValueKey('invalid_email_warning'),
+                                    padding: EdgeInsets.only(
+                                      top: 6.0,
+                                      left: 4.0,
+                                    ),
+                                    child: Text(
+                                      'Please enter a valid email address',
+                                      style: TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  )
+                                : const SizedBox.shrink(
+                                    key: ValueKey('valid_email'),
+                                  ),
+                          );
                         },
                       ),
 
@@ -609,16 +658,24 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                         builder: (context, _) {
                           final canSubmit = _validateForm();
 
-                          return SizedBox(
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeInOut,
                             width: double.infinity,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: canSubmit
+                                  ? FeedbackScreen.primaryGreen
+                                  : FeedbackScreen.borderColor,
+                            ),
                             child: ElevatedButton(
                               onPressed: (canSubmit && !_isLoading)
                                   ? _handleSubmit
                                   : null,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: FeedbackScreen.primaryGreen,
-                                disabledBackgroundColor:
-                                    FeedbackScreen.borderColor,
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                disabledBackgroundColor: Colors.transparent,
                                 elevation: 0,
                                 padding: const EdgeInsets.symmetric(
                                   vertical: 16,
@@ -627,26 +684,39 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                               ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : Text(
-                                      'Submit Feedback',
-                                      style: TextStyle(
-                                        color: canSubmit
-                                            ? Colors.white
-                                            : FeedbackScreen
-                                                  .placeholderTextColor,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                      opacity: animation,
+                                      child: ScaleTransition(
+                                        scale: animation,
+                                        child: child,
                                       ),
                                     ),
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        key: ValueKey('submit_loading'),
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : Text(
+                                        'Submit Feedback',
+                                        key: ValueKey<bool>(canSubmit),
+                                        style: TextStyle(
+                                          color: canSubmit
+                                              ? Colors.white
+                                              : FeedbackScreen
+                                                    .placeholderTextColor,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                              ),
                             ),
                           );
                         },

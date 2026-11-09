@@ -186,93 +186,132 @@ class SecuritySettingsScreen extends StatelessWidget {
                       children: [
                         const SizedBox(height: _spacing16),
                         _buildSectionHeader(_textSecurityAndPassword),
-                        _buildFloatingCard(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(_spacing16),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(_spacing10),
-                                    decoration: BoxDecoration(
-                                      color: lightGreenBg.withValues(
-                                        alpha: _lightGreenAlpha,
-                                      ),
-                                      borderRadius: BorderRadius.circular(
-                                        _spacing10,
-                                      ),
-                                    ),
-                                    child: const Icon(
-                                      CupertinoIcons.lock_fill,
-                                      color: midGreen,
-                                      size: _iconSizeLock,
-                                    ),
-                                  ),
-                                  const SizedBox(width: _spacing14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Text(
-                                          _textPasswordHeader,
-                                          style: TextStyle(
-                                            fontSize: _fontSizeLabel,
-                                            fontWeight: FontWeight.bold,
-                                            color: darkGreen,
-                                            letterSpacing: _letterSpacingLabel,
-                                          ),
+                        TweenAnimationBuilder<double>(
+                          duration: const Duration(milliseconds: 400),
+                          curve: Curves.easeOutCubic,
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, (1 - value) * 16),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _buildFloatingCard(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(_spacing16),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(_spacing10),
+                                      decoration: BoxDecoration(
+                                        color: lightGreenBg.withValues(
+                                          alpha: _lightGreenAlpha,
                                         ),
-                                        const SizedBox(height: _spacing4),
-                                        Text(
-                                          '$_textLastChangedPrefix$lastChangedText',
-                                          style: const TextStyle(
-                                            fontSize: _fontSizeSubtext,
-                                            fontWeight: FontWeight.w500,
-                                            color: textGrey,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: darkGreen,
-                                      side: const BorderSide(
-                                        color: midGreen,
-                                        width: _borderWidth15,
-                                      ),
-                                      shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(
                                           _spacing10,
                                         ),
                                       ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: _spacing12,
-                                        vertical: _spacing8,
+                                      child: const Icon(
+                                        CupertinoIcons.lock_fill,
+                                        color: midGreen,
+                                        size: _iconSizeLock,
                                       ),
                                     ),
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              const ChangePasswordScreen(),
+                                    const SizedBox(width: _spacing14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            _textPasswordHeader,
+                                            style: TextStyle(
+                                              fontSize: _fontSizeLabel,
+                                              fontWeight: FontWeight.bold,
+                                              color: darkGreen,
+                                              letterSpacing:
+                                                  _letterSpacingLabel,
+                                            ),
+                                          ),
+                                          const SizedBox(height: _spacing4),
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 250,
+                                            ),
+                                            transitionBuilder:
+                                                (child, animation) {
+                                                  return FadeTransition(
+                                                    opacity: animation,
+                                                    child: SlideTransition(
+                                                      position: Tween<Offset>(
+                                                        begin: const Offset(
+                                                          0.0,
+                                                          0.15,
+                                                        ),
+                                                        end: Offset.zero,
+                                                      ).animate(animation),
+                                                      child: child,
+                                                    ),
+                                                  );
+                                                },
+                                            child: Text(
+                                              '$_textLastChangedPrefix$lastChangedText',
+                                              key: ValueKey<String>(
+                                                lastChangedText,
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: _fontSizeSubtext,
+                                                fontWeight: FontWeight.w500,
+                                                color: textGrey,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: darkGreen,
+                                        side: const BorderSide(
+                                          color: midGreen,
+                                          width: _borderWidth15,
                                         ),
-                                      );
-                                    },
-                                    child: const Text(
-                                      _textChangeButton,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: _fontSizeButton,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            _spacing10,
+                                          ),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: _spacing12,
+                                          vertical: _spacing8,
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                const ChangePasswordScreen(),
+                                          ),
+                                        );
+                                      },
+                                      child: const Text(
+                                        _textChangeButton,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: _fontSizeButton,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                         const SizedBox(height: _spacing32),
                       ],

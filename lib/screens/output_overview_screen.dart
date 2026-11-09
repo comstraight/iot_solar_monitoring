@@ -1,4 +1,5 @@
 // output_overview_screen.dart
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'analytics_screen.dart';
@@ -49,7 +50,7 @@ abstract class _AppDimensions {
   static const double itemVerticalPadding = 4.0;
   static const double spacingWidthMedium = 12.0;
 
-  static const double fallbackKwh = 200.0;
+  static const double fallbackKwh = 0.0;
 }
 
 /// Centralized Firestore Collection Names & Field Constants
@@ -58,11 +59,14 @@ abstract class _AppFirestore {
   static const String docCurrent = 'current';
 
   static const String fieldGroups = 'groups';
+  static const String fieldAggregators = 'aggregators';
   static const String fieldOutputOverview = 'output_overview';
   static const String fieldDaily = 'daily';
   static const String fieldName = 'name';
   static const String fieldGroupName = 'group_name';
+  static const String fieldAggregatorName = 'aggregator_name';
   static const String fieldGroupId = 'group_id';
+  static const String fieldAggregatorId = 'aggregator_id';
   static const String fieldTotalKwh = 'totalKwh';
   static const String fieldOutputKwh = 'output_kwh';
   static const String fieldTotalKwhSnake = 'total_kwh';
@@ -81,21 +85,45 @@ class SiteOutputItem {
   });
 
   factory SiteOutputItem.fromMap(String id, SystemJsonMap data) {
+    final String resolvedId =
+        (data[_AppFirestore.fieldAggregatorId] ??
+                data['aggregatorId'] ??
+                data[_AppFirestore.fieldGroupId] ??
+                data['groupId'] ??
+                (id.isNotEmpty ? id : ''))
+            .toString();
+
+    String rawName =
+        (data[_AppFirestore.fieldAggregatorName] ??
+                data['aggregatorName'] ??
+                data[_AppFirestore.fieldGroupName] ??
+                data['group_name'] ??
+                data[_AppFirestore.fieldName] ??
+                data['name'] ??
+                data['title'] ??
+                (resolvedId.isNotEmpty ? resolvedId : null) ??
+                _AppStrings.fallbackSiteName)
+            .toString();
+
+    if (rawName.trim().isEmpty || rawName.trim().toLowerCase() == 'null') {
+      rawName = resolvedId.isNotEmpty
+          ? resolvedId
+          : _AppStrings.fallbackSiteName;
+    }
+
+    final double rawKwh =
+        ((data[_AppFirestore.fieldKwh] ??
+                    data[_AppFirestore.fieldTotalKwh] ??
+                    data[_AppFirestore.fieldOutputKwh] ??
+                    data[_AppFirestore.fieldTotalKwhSnake] ??
+                    0.0)
+                as num)
+            .toDouble();
+
     return SiteOutputItem(
-      id: id,
-      name:
-          (data[_AppFirestore.fieldGroupName] ??
-                  data[_AppFirestore.fieldName] ??
-                  _AppStrings.fallbackSiteName)
-              .toString(),
-      totalKwh:
-          ((data[_AppFirestore.fieldKwh] ??
-                      data[_AppFirestore.fieldTotalKwh] ??
-                      data[_AppFirestore.fieldOutputKwh] ??
-                      data[_AppFirestore.fieldTotalKwhSnake] ??
-                      _AppDimensions.fallbackKwh)
-                  as num)
-              .toDouble(),
+      id: resolvedId.isNotEmpty ? resolvedId : 'aggregator_01',
+      name: rawName,
+      totalKwh: max(0.0, rawKwh),
     );
   }
 }
@@ -214,24 +242,67 @@ class _OutputOverviewScreenState extends State<OutputOverviewScreen> {
               for (var item in dailyList) {
                 if (item is Map) {
                   final itemMap = SystemJsonMap.from(item);
-                  final gId = (itemMap[_AppFirestore.fieldGroupId] ?? '')
-                      .toString();
+                  final gId =
+                      (itemMap[_AppFirestore.fieldAggregatorId] ??
+                              itemMap['aggregatorId'] ??
+                              itemMap[_AppFirestore.fieldGroupId] ??
+                              '')
+                          .toString();
                   sites.add(SiteOutputItem.fromMap(gId, itemMap));
                 }
               }
             }
 
-            // 2. Fallback to groups map if output_overview daily list is absent or empty
+            // 2. Check aggregators map or groups map if output_overview daily list is absent or empty
             if (sites.isEmpty) {
-              final groupsMap =
-                  data[_AppFirestore.fieldGroups] as SystemJsonMap? ?? {};
+              final aggregatorsMap =
+                  data[_AppFirestore.fieldAggregators] as SystemJsonMap? ??
+                  data[_AppFirestore.fieldGroups] as SystemJsonMap? ??
+                  {};
 
-              groupsMap.forEach((key, value) {
+              aggregatorsMap.forEach((key, value) {
                 if (value is Map) {
                   sites.add(
                     SiteOutputItem.fromMap(key, SystemJsonMap.from(value)),
                   );
                 }
+              });
+            }
+
+            // 3. Fallback: Check panels map if output_overview and aggregators are empty
+            if (sites.isEmpty) {
+              final panelsMap = data['panels'] as SystemJsonMap? ?? {};
+              final Map<String, double> aggKwhMap = {};
+              final Map<String, String> aggNameMap = {};
+
+              panelsMap.forEach((pId, pVal) {
+                if (pVal is Map) {
+                  final pMap = SystemJsonMap.from(pVal);
+                  final aId =
+                      (pMap['aggregator_id'] ??
+                              pMap['aggregatorId'] ??
+                              'aggregator_01')
+                          .toString();
+                  final aName =
+                      (pMap['aggregator_name'] ?? pMap['panel_name'] ?? aId)
+                          .toString();
+                  final kwh = max(
+                    0.0,
+                    ((data['total_kwh_today'] ?? 0.0) as num).toDouble(),
+                  );
+                  aggKwhMap[aId] = (aggKwhMap[aId] ?? 0.0) + kwh;
+                  aggNameMap[aId] = aName;
+                }
+              });
+
+              aggKwhMap.forEach((aId, kwh) {
+                sites.add(
+                  SiteOutputItem(
+                    id: aId,
+                    name: aggNameMap[aId] ?? aId,
+                    totalKwh: max(0.0, kwh),
+                  ),
+                );
               });
             }
           }
@@ -242,68 +313,108 @@ class _OutputOverviewScreenState extends State<OutputOverviewScreen> {
 
           sites.sort((a, b) => b.totalKwh.compareTo(a.totalKwh));
 
-          return ListView.separated(
-            padding: const EdgeInsets.symmetric(
-              horizontal: _AppDimensions.listHorizontalPadding,
-              vertical: _AppDimensions.listVerticalPadding,
-            ),
-            itemCount: sites.length,
-            separatorBuilder: (context, index) =>
-                const SizedBox(height: _AppDimensions.listSeparatorHeight),
-            itemBuilder: (context, index) {
-              final site = sites[index];
-              return InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AnalyticsScreen(
-                        initialSiteId: site.id,
-                        initialSiteName: site.name,
-                      ),
-                    ),
-                  );
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: _AppDimensions.itemVerticalPadding,
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: ListView.separated(
+              key: ValueKey<int>(sites.length),
+              padding: const EdgeInsets.symmetric(
+                horizontal: _AppDimensions.listHorizontalPadding,
+                vertical: _AppDimensions.listVerticalPadding,
+              ),
+              itemCount: sites.length,
+              separatorBuilder: (context, index) =>
+                  const SizedBox(height: _AppDimensions.listSeparatorHeight),
+              itemBuilder: (context, index) {
+                final site = sites[index];
+                return TweenAnimationBuilder<double>(
+                  key: ValueKey<String>('site_${site.id}_$index'),
+                  duration: Duration(
+                    milliseconds: 350 + (index * 50).clamp(0, 250),
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        site.name,
-                        style: const TextStyle(
-                          fontSize: _AppDimensions.fontSiteName,
-                          fontWeight: FontWeight.bold,
-                          color: _AppColors.textBlack,
-                        ),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - value) * 14),
+                        child: child,
                       ),
-                      Row(
+                    );
+                  },
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AnalyticsScreen(
+                            initialSiteId: site.id,
+                            initialSiteName: site.name,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: _AppDimensions.itemVerticalPadding,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            '${site.totalKwh.toStringAsFixed(0)}${_AppStrings.unitKwh}',
+                            site.name,
                             style: const TextStyle(
-                              fontSize: _AppDimensions.fontKwhValue,
-                              fontWeight: FontWeight.w600,
-                              color: _AppColors.textBlack87,
+                              fontSize: _AppDimensions.fontSiteName,
+                              fontWeight: FontWeight.bold,
+                              color: _AppColors.textBlack,
                             ),
                           ),
-                          const SizedBox(
-                            width: _AppDimensions.spacingWidthMedium,
-                          ),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: _AppColors.textBlack54,
-                            size: _AppDimensions.iconSizeChevron,
+                          Row(
+                            children: [
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 250),
+                                transitionBuilder: (child, animation) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: SlideTransition(
+                                      position: Tween<Offset>(
+                                        begin: const Offset(0.0, 0.15),
+                                        end: Offset.zero,
+                                      ).animate(animation),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: Text(
+                                  '${max(0.0, site.totalKwh).toStringAsFixed(0)}${_AppStrings.unitKwh}',
+                                  key: ValueKey<String>(
+                                    '${site.id}_${site.totalKwh}',
+                                  ),
+                                  style: const TextStyle(
+                                    fontSize: _AppDimensions.fontKwhValue,
+                                    fontWeight: FontWeight.w600,
+                                    color: _AppColors.textBlack87,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(
+                                width: _AppDimensions.spacingWidthMedium,
+                              ),
+                              const Icon(
+                                Icons.chevron_right_rounded,
+                                color: _AppColors.textBlack54,
+                                size: _AppDimensions.iconSizeChevron,
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           );
         },
       ),

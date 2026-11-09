@@ -9,8 +9,8 @@ import 'login_screen.dart';
 import 'analytics_screen.dart';
 import 'notification_screen.dart';
 import 'initial_setup_screen.dart';
-import 'groups_screen.dart';
 import 'settings_screen.dart';
+import 'monitoring_screen.dart';
 
 /// Type definitions to prevent generic angle-bracket stripping issues
 typedef SystemDocumentSnapshot = DocumentSnapshot<Map<String, dynamic>>;
@@ -70,7 +70,6 @@ abstract class _AppStrings {
   static const String menuMetrics = 'Metrics';
   static const String sectionSetup = 'SETUP';
   static const String menuAddSetup = 'Add a Setup';
-  static const String menuSites = 'Sites';
   static const String sectionSettingsAccount = 'SETTINGS AND ACCOUNT';
   static const String menuSettings = 'Settings';
   static const String menuLogOut = 'Log Out';
@@ -222,6 +221,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Active subscription for user profile pairedDevices
   StreamSubscription<SystemDocumentSnapshot>? _userSubscription;
+
+  // Real-time listener for user's claimed sites from aggregators collection
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sitesSubscription;
+  Map<String, String> _connectedSitesMap = {};
+
   List<String> _userPairedDevices = [];
 
   // Real-time listener state for pre-aggregated time-range totals
@@ -236,6 +240,7 @@ class _HomeScreenState extends State<HomeScreen> {
         .snapshots(includeMetadataChanges: false);
 
     _listenToUserDoc();
+    _listenToSitesCollection();
     _listenToAggregatedTotals();
   }
 
@@ -243,7 +248,39 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _analyticsSubscription?.cancel();
     _userSubscription?.cancel();
+    _sitesSubscription?.cancel();
     super.dispose();
+  }
+
+  /// Listens to user's claimed OrangePis / Sites from aggregators collection
+  void _listenToSitesCollection() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    _sitesSubscription = FirebaseFirestore.instance
+        .collection('aggregators')
+        .where('owner_uid', isEqualTo: user.uid)
+        .snapshots()
+        .listen((snapshot) {
+          if (mounted) {
+            final Map<String, String> siteMap = {};
+            for (int i = 0; i < snapshot.docs.length; i++) {
+              final doc = snapshot.docs[i];
+              final data = doc.data();
+              final rawName = data['aggregator_name']?.toString();
+              final siteName =
+                  (rawName != null &&
+                      rawName.trim().isNotEmpty &&
+                      rawName != 'Orangepi Device')
+                  ? rawName
+                  : 'Site ${i + 1}';
+              siteMap[doc.id] = siteName;
+            }
+            setState(() {
+              _connectedSitesMap = siteMap;
+            });
+          }
+        });
   }
 
   /// Real-time listener for current user's document to get paired device IDs
@@ -412,6 +449,88 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _showRenamePanelDialog(String panelId, String currentName) {
+    final controller = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+          ),
+          title: const Text(
+            'Rename Panel',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Enter new panel name',
+              filled: true,
+              fillColor: _AppColors.drawerBgGrey,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: _AppDimensions.spacingMedium,
+                vertical: _AppDimensions.spacingSmall,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: _AppColors.textSubtleGrey),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _AppColors.midGreen,
+                foregroundColor: _AppColors.backgroundWhite,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    _AppDimensions.radiusCard,
+                  ),
+                ),
+              ),
+              onPressed: () async {
+                final newName = controller.text.trim();
+                if (newName.isNotEmpty) {
+                  Navigator.pop(dialogContext);
+                  try {
+                    final docRef = FirebaseFirestore.instance
+                        .collection(_AppFirestore.collectionSystemStatus)
+                        .doc(_AppFirestore.docCurrent);
+
+                    await docRef.update({
+                      'panels.$panelId.panel_name': newName,
+                    });
+
+                    await FirebaseFirestore.instance
+                        .collection('devices')
+                        .doc(panelId)
+                        .set({'panel_name': newName}, SetOptions(merge: true));
+                  } catch (e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Error renaming panel: $e')),
+                      );
+                    }
+                  }
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -450,10 +569,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     .toDouble();
 
             final double displayTotalGenerated =
-                selectedTimeRange == _AppStrings.timeRangeToday &&
+                selectedTimeRange == _AppStrings.timeRangeThisWeek &&
                     _aggregatedTotalKwh == 0.0
                 ? liveTotalToday
-                : _aggregatedTotalKwh;
+                : (_aggregatedTotalKwh == 0.0
+                      ? liveTotalToday
+                      : _aggregatedTotalKwh);
 
             final double peakOutput =
                 (telemetryData[_AppFirestore.fieldPeakOutputKw] ??
@@ -484,24 +605,41 @@ class _HomeScreenState extends State<HomeScreen> {
                 final String? ownerUid =
                     pData[_AppFirestore.fieldOwnerUid] ??
                     pData[_AppFirestore.fieldOwnerUidCamel];
+                final String? aggregatorId = pData['aggregator_id']?.toString();
+
                 final bool isOwner =
-                    (ownerUid != null && ownerUid == currentUid);
+                    (currentUid != null &&
+                    ownerUid != null &&
+                    ownerUid == currentUid);
+                final bool isClaimedByConnectedSite =
+                    aggregatorId != null &&
+                    _connectedSitesMap.containsKey(aggregatorId);
                 final bool isPaired = _userPairedDevices.contains(pId);
 
-                if (isOwner || isPaired || currentUid == null) {
+                if (isOwner || isClaimedByConnectedSite || isPaired) {
                   userPanelsMap[pId] = pData;
                 }
               }
             });
 
             final SystemJsonMap userGroupsMap = {};
+
+            _connectedSitesMap.forEach((siteId, siteName) {
+              userGroupsMap[siteId] = {
+                _AppFirestore.fieldGroupName: siteName,
+                _AppFirestore.fieldName: siteName,
+                _AppFirestore.fieldOwnerUid: currentUid,
+              };
+            });
+
             rawGroupsMap.forEach((gId, gData) {
               if (gData is SystemJsonMap) {
                 final String? groupOwner =
                     gData[_AppFirestore.fieldOwnerUid] ??
                     gData[_AppFirestore.fieldOwnerUidCamel];
                 final String groupName =
-                    (gData[_AppFirestore.fieldGroupName] ??
+                    (_connectedSitesMap[gId] ??
+                            gData[_AppFirestore.fieldGroupName] ??
                             gData[_AppFirestore.fieldName] ??
                             '')
                         .toString();
@@ -512,9 +650,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
 
                 if (groupOwner == currentUid ||
-                    hasMemberPanel ||
-                    currentUid == null) {
-                  userGroupsMap[gId] = gData;
+                    _connectedSitesMap.containsKey(gId) ||
+                    hasMemberPanel) {
+                  userGroupsMap[gId] = {
+                    ...gData,
+                    _AppFirestore.fieldGroupName: groupName,
+                  };
                 }
               }
             });
@@ -571,11 +712,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Text(
-                      peakOutput.toStringAsFixed(1),
-                      style: const TextStyle(
-                        fontSize: _AppDimensions.fontExtraLarge,
-                        fontWeight: FontWeight.bold,
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      transitionBuilder: (child, animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(0.0, 0.1),
+                              end: Offset.zero,
+                            ).animate(animation),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: Text(
+                        peakOutput.toStringAsFixed(1),
+                        key: ValueKey<double>(peakOutput),
+                        style: const TextStyle(
+                          fontSize: _AppDimensions.fontExtraLarge,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                     const SizedBox(width: _AppDimensions.spacingMicro),
@@ -626,11 +783,27 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Text(_AppStrings.currencySymbol),
                     ),
                     const SizedBox(width: 3),
-                    Text(
-                      estimatedSavings.toStringAsFixed(0),
-                      style: const TextStyle(
-                        fontSize: _AppDimensions.fontExtraLarge,
-                        fontWeight: FontWeight.bold,
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      transitionBuilder: (child, animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(0.0, 0.1),
+                              end: Offset.zero,
+                            ).animate(animation),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: Text(
+                        estimatedSavings.toStringAsFixed(0),
+                        key: ValueKey<double>(estimatedSavings),
+                        style: const TextStyle(
+                          fontSize: _AppDimensions.fontExtraLarge,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ],
@@ -813,7 +986,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (selectedFilter != _AppStrings.filterViewAll) {
       groupEntries = groupEntries.where((entry) {
         final String groupName =
-            (entry.value[_AppFirestore.fieldGroupName] ??
+            (_connectedSitesMap[entry.key] ??
+                    entry.value[_AppFirestore.fieldGroupName] ??
                     entry.value[_AppFirestore.fieldName] ??
                     '')
                 .toString();
@@ -844,6 +1018,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final String groupKey = groupEntry.key;
       final SystemJsonMap groupData = groupEntry.value;
       final String groupName =
+          _connectedSitesMap[groupKey] ??
           groupData[_AppFirestore.fieldGroupName] ??
           groupData[_AppFirestore.fieldName] ??
           _AppStrings.unnamedGroup;
@@ -888,11 +1063,19 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       } else {
-        for (var panelData in groupPanels) {
-          final String name =
-              panelData[_AppFirestore.fieldGroupName] ??
-              panelData[_AppFirestore.fieldName] ??
-              _AppStrings.unnamedPanel;
+        for (int i = 0; i < groupPanels.length; i++) {
+          final panelData = groupPanels[i];
+          final int panelIndex = i + 1;
+          final String panelId =
+              panelData['panel_id']?.toString() ??
+              panelData['id']?.toString() ??
+              'panel_$panelIndex';
+
+          // Use real-time panel name from Firestore, falling back to claimed/unclaimed format
+          final String displayPanelName =
+              panelData['panel_name']?.toString() ??
+              panelData['name']?.toString() ??
+              'Panel_$panelIndex - $groupName';
 
           final SystemJsonMap? sensorData =
               panelData[_AppFirestore.fieldSensorData] as SystemJsonMap?;
@@ -909,14 +1092,28 @@ class _HomeScreenState extends State<HomeScreen> {
                         0.0)
                     .toDouble();
 
-          children.add(metricCard(title: name, value: value));
+          children.add(
+            _SwipeablePanelCard(
+              key: ValueKey<String>('swipe_panel_$panelId'),
+              panelId: panelId,
+              title: displayPanelName,
+              value: value,
+              onRename: () => _showRenamePanelDialog(panelId, displayPanelName),
+            ),
+          );
         }
       }
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: children,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      child: Column(
+        key: ValueKey<String>('panels_list_$selectedFilter'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
     );
   }
 
@@ -926,13 +1123,19 @@ class _HomeScreenState extends State<HomeScreen> {
     SystemJsonMap groupData,
   ) {
     final String groupName =
-        (groupData[_AppFirestore.fieldGroupName] ??
+        (_connectedSitesMap[groupKey] ??
+                groupData[_AppFirestore.fieldGroupName] ??
                 groupData[_AppFirestore.fieldName] ??
                 '')
             .toString();
     final String? panelGroup = panelData[_AppFirestore.fieldGroup]?.toString();
     final String? panelGroupName = panelData[_AppFirestore.fieldGroupName]
         ?.toString();
+    final String? panelAggregatorId = panelData['aggregator_id']?.toString();
+
+    if (panelAggregatorId != null && panelAggregatorId == groupKey) {
+      return true;
+    }
 
     if (panelGroup != null && panelGroup.isNotEmpty && panelGroup == groupKey) {
       return true;
@@ -990,66 +1193,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget metricCard({required String title, required double value}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          margin: const EdgeInsets.only(bottom: 20),
-          height: _AppDimensions.panelMetricCardHeight,
-          width:
-              MediaQuery.of(context).size.width *
-              _AppDimensions.cardWidthFactorPanel,
-          decoration: _cardBoxDecoration(),
-          child: Row(
-            children: [
-              const SizedBox(width: _AppDimensions.spacingStandard),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: _AppDimensions.fontTitleLarge,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  const Text(
-                    _AppStrings.individualValueLabel,
-                    style: TextStyle(fontSize: _AppDimensions.fontCaption),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    value < 1.0
-                        ? value.toStringAsFixed(2)
-                        : value.toStringAsFixed(1),
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: _AppDimensions.fontValueLarge,
-                    ),
-                  ),
-                  const Text(
-                    _AppStrings.unitKwhUpper,
-                    style: TextStyle(fontSize: _AppDimensions.fontSubtitle),
-                  ),
-                ],
-              ),
-              const SizedBox(width: _AppDimensions.spacingStandard),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
   Widget topDashboard({required double soc, required double totalGenerated}) {
     return Container(
       height: _AppDimensions.dashboardHeight,
@@ -1102,12 +1245,30 @@ class _HomeScreenState extends State<HomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.baseline,
                       textBaseline: TextBaseline.alphabetic,
                       children: [
-                        Text(
-                          totalGenerated.toStringAsFixed(2),
-                          style: const TextStyle(
-                            fontSize: _AppDimensions.fontHeaderLarge,
-                            fontWeight: FontWeight.bold,
-                            color: _AppColors.iconWhite,
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          transitionBuilder: (child, animation) {
+                            return FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0.0, 0.15),
+                                  end: Offset.zero,
+                                ).animate(animation),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            totalGenerated.toStringAsFixed(2),
+                            key: ValueKey<String>(
+                              'total_gen_${selectedTimeRange}_$totalGenerated',
+                            ),
+                            style: const TextStyle(
+                              fontSize: _AppDimensions.fontHeaderLarge,
+                              fontWeight: FontWeight.bold,
+                              color: _AppColors.iconWhite,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 6),
@@ -1139,7 +1300,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTimeRangeDropdown() {
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       height: 38,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
@@ -1349,21 +1511,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   },
                 ),
-                _buildDrawerItem(
-                  icon: CupertinoIcons.rectangle_grid_2x2,
-                  title: _AppStrings.menuSites,
-                  onTap: () {
-                    if (Navigator.canPop(context)) {
-                      Navigator.pop(context);
-                    }
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const GroupsScreen(),
-                      ),
-                    );
-                  },
-                ),
                 const SizedBox(height: 20),
                 _buildSectionHeader(_AppStrings.sectionSettingsAccount),
                 _buildDrawerItem(
@@ -1478,6 +1625,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   PreferredSizeWidget _buildAppBar() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final List<String> targetUids = ['all'];
+    if (currentUser != null && currentUser.uid.isNotEmpty) {
+      targetUids.add(currentUser.uid);
+    }
+
     return AppBar(
       toolbarHeight: _AppDimensions.appBarHeight,
       leadingWidth: _AppDimensions.appBarHeight,
@@ -1509,34 +1662,82 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       actions: [
         Center(
-          child: GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const NotificationScreen(),
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('notifications')
+                .where('targetUid', whereIn: targetUids)
+                .snapshots(),
+            builder: (context, snapshot) {
+              bool hasUnread = false;
+              if (snapshot.hasData && snapshot.data != null) {
+                for (var doc in snapshot.data!.docs) {
+                  final data = doc.data() as Map<String, dynamic>? ?? {};
+                  final isReadRaw = data['isRead'];
+                  bool isRead = false;
+                  if (isReadRaw is bool) {
+                    isRead = isReadRaw;
+                  } else if (isReadRaw is String) {
+                    isRead = isReadRaw.toLowerCase() == 'true';
+                  }
+                  if (!isRead) {
+                    hasUnread = true;
+                    break;
+                  }
+                }
+              }
+
+              return GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const NotificationScreen(),
+                    ),
+                  );
+                },
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: _AppDimensions.appBarButtonSize,
+                      height: _AppDimensions.appBarButtonSize,
+                      margin: const EdgeInsets.only(right: 15),
+                      decoration: BoxDecoration(
+                        color: Colors.transparent,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _AppColors.borderGreen,
+                          width: _AppDimensions.borderWidthStandard,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Icon(
+                        CupertinoIcons.bell,
+                        size: _AppDimensions.iconSizeMedium,
+                        color: _AppColors.iconWhite,
+                      ),
+                    ),
+                    if (hasUnread)
+                      Positioned(
+                        top: 2,
+                        right: 17,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: _AppColors.destructiveRed,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: _AppColors.darkGreen,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               );
             },
-            child: Container(
-              width: _AppDimensions.appBarButtonSize,
-              height: _AppDimensions.appBarButtonSize,
-              margin: const EdgeInsets.only(right: 15),
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: _AppColors.borderGreen,
-                  width: _AppDimensions.borderWidthStandard,
-                ),
-              ),
-              alignment: Alignment.center,
-              child: const Icon(
-                CupertinoIcons.bell,
-                size: _AppDimensions.iconSizeMedium,
-                color: _AppColors.iconWhite,
-              ),
-            ),
           ),
         ),
       ],
@@ -1557,6 +1758,238 @@ class _HomeScreenState extends State<HomeScreen> {
           offset: const Offset(0, 2),
         ),
       ],
+    );
+  }
+}
+
+class _SwipeablePanelCard extends StatefulWidget {
+  final String panelId;
+  final String title;
+  final double value;
+  final VoidCallback onRename;
+
+  const _SwipeablePanelCard({
+    super.key,
+    required this.panelId,
+    required this.title,
+    required this.value,
+    required this.onRename,
+  });
+
+  @override
+  State<_SwipeablePanelCard> createState() => _SwipeablePanelCardState();
+}
+
+class _SwipeablePanelCardState extends State<_SwipeablePanelCard> {
+  double _dragOffset = 0.0;
+  static const double _actionsWidth = 85.0;
+
+  void _close() {
+    if (mounted) {
+      setState(() {
+        _dragOffset = 0.0;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double cardWidth =
+        MediaQuery.of(context).size.width * _AppDimensions.cardWidthFactorPanel;
+
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      builder: (context, animValue, child) {
+        return Opacity(
+          opacity: animValue,
+          child: Transform.translate(
+            offset: Offset(0, (1 - animValue) * 12),
+            child: child,
+          ),
+        );
+      },
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(bottom: 20),
+            height: _AppDimensions.panelMetricCardHeight,
+            width: cardWidth,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(
+                        _AppDimensions.radiusCard,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            _close();
+                            widget.onRename();
+                          },
+                          child: Container(
+                            width: _actionsWidth,
+                            height: double.infinity,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2B88D8),
+                              borderRadius: BorderRadius.circular(
+                                _AppDimensions.radiusCard,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text(
+                              'Rename',
+                              style: TextStyle(
+                                color: _AppColors.backgroundWhite,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 100),
+                  curve: Curves.easeOutCubic,
+                  top: 0,
+                  bottom: 0,
+                  left: _dragOffset,
+                  right: -_dragOffset,
+                  child: GestureDetector(
+                    onHorizontalDragUpdate: (details) {
+                      setState(() {
+                        _dragOffset = (_dragOffset + details.delta.dx).clamp(
+                          -_actionsWidth,
+                          0.0,
+                        );
+                      });
+                    },
+                    onHorizontalDragEnd: (details) {
+                      setState(() {
+                        if (_dragOffset < -_actionsWidth / 2) {
+                          _dragOffset = -_actionsWidth;
+                        } else {
+                          _dragOffset = 0.0;
+                        }
+                      });
+                    },
+                    onTap: () {
+                      if (_dragOffset < 0) {
+                        _close();
+                      } else {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                MonitoringScreen(panelId: widget.panelId),
+                          ),
+                        );
+                      }
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: _AppColors.backgroundWhite,
+                        borderRadius: BorderRadius.circular(
+                          _AppDimensions.radiusCard,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _AppColors.cardShadow.withValues(
+                              alpha: _AppDimensions.shadowAlphaCard,
+                            ),
+                            spreadRadius: 2,
+                            blurRadius: 3,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(width: _AppDimensions.spacingStandard),
+                          Expanded(
+                            child: Transform.translate(
+                              offset: Offset(-_dragOffset, 0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    widget.title,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    _AppStrings.individualValueLabel,
+                                    style: TextStyle(
+                                      fontSize: _AppDimensions.fontCaption,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 250),
+                                transitionBuilder: (child, animation) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: SlideTransition(
+                                      position: Tween<Offset>(
+                                        begin: const Offset(0.0, 0.1),
+                                        end: Offset.zero,
+                                      ).animate(animation),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: Text(
+                                  widget.value < 1.0
+                                      ? widget.value.toStringAsFixed(2)
+                                      : widget.value.toStringAsFixed(1),
+                                  key: ValueKey<double>(widget.value),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: _AppDimensions.fontValueLarge,
+                                  ),
+                                ),
+                              ),
+                              const Text(
+                                _AppStrings.unitKwhUpper,
+                                style: TextStyle(
+                                  fontSize: _AppDimensions.fontSubtitle,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(width: _AppDimensions.spacingStandard),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

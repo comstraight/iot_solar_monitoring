@@ -27,6 +27,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   bool _isLoading = false;
 
+  // Real-time password requirement tracker states
+  bool _hasMinLength = false;
+  bool _hasUppercase = false;
+  bool _hasLowercase = false;
+
   // Extracted constants
   static const int _minPasswordLength = 8;
   static const String _passwordProviderId = 'password';
@@ -37,7 +42,31 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   static const Color snackBarSuccessColor = Color(0xFF00FF22);
 
   @override
+  void initState() {
+    super.initState();
+    _newPasswordController.addListener(_updatePasswordStrength);
+  }
+
+  void _updatePasswordStrength() {
+    final text = _newPasswordController.text;
+    final minLengthMet = text.length >= _minPasswordLength;
+    final upperMet = _uppercaseRegex.hasMatch(text);
+    final lowerMet = _lowercaseRegex.hasMatch(text);
+
+    if (_hasMinLength != minLengthMet ||
+        _hasUppercase != upperMet ||
+        _hasLowercase != lowerMet) {
+      setState(() {
+        _hasMinLength = minLengthMet;
+        _hasUppercase = upperMet;
+        _hasLowercase = lowerMet;
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _newPasswordController.removeListener(_updatePasswordStrength);
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
@@ -198,6 +227,67 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     );
   }
 
+  Widget _buildVisibilityToggle(bool visible, VoidCallback onTap) {
+    return IconButton(
+      icon: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        transitionBuilder: (child, animation) =>
+            ScaleTransition(scale: animation, child: child),
+        child: Icon(
+          visible ? CupertinoIcons.eye_fill : CupertinoIcons.eye_slash_fill,
+          key: ValueKey<bool>(visible),
+          color: Colors.grey,
+          size: 18,
+        ),
+      ),
+      onPressed: onTap,
+    );
+  }
+
+  Widget _buildRequirementPill(String label, bool isMet) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOut,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: isMet
+            ? midGreen.withOpacity(0.12)
+            : Colors.grey.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isMet ? midGreen : Colors.transparent,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: Icon(
+              isMet
+                  ? CupertinoIcons.checkmark_circle_fill
+                  : CupertinoIcons.circle,
+              key: ValueKey<bool>(isMet),
+              size: 12,
+              color: isMet ? midGreen : Colors.grey,
+            ),
+          ),
+          const SizedBox(width: 4),
+          AnimatedDefaultTextStyle(
+            duration: const Duration(milliseconds: 200),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: isMet ? FontWeight.bold : FontWeight.normal,
+              color: isMet ? darkGreen : Colors.grey[600],
+            ),
+            child: Text(label),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
@@ -256,17 +346,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                   decoration: _buildInputDecoration(
                                     hint: 'Enter current password',
                                     prefixIcon: CupertinoIcons.lock_fill,
-                                    suffixIcon: IconButton(
-                                      icon: Icon(
-                                        visible
-                                            ? CupertinoIcons.eye_fill
-                                            : CupertinoIcons.eye_slash_fill,
-                                        color: Colors.grey,
-                                        size: 18,
-                                      ),
-                                      onPressed: () =>
-                                          _isCurrentPasswordVisible.value =
-                                              !visible,
+                                    suffixIcon: _buildVisibilityToggle(
+                                      visible,
+                                      () => _isCurrentPasswordVisible.value =
+                                          !visible,
                                     ),
                                   ),
                                   validator: (val) => val == null || val.isEmpty
@@ -298,17 +381,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                   decoration: _buildInputDecoration(
                                     hint: 'Enter new password',
                                     prefixIcon: CupertinoIcons.lock_shield_fill,
-                                    suffixIcon: IconButton(
-                                      icon: Icon(
-                                        visible
-                                            ? CupertinoIcons.eye_fill
-                                            : CupertinoIcons.eye_slash_fill,
-                                        color: Colors.grey,
-                                        size: 18,
-                                      ),
-                                      onPressed: () =>
-                                          _isNewPasswordVisible.value =
-                                              !visible,
+                                    suffixIcon: _buildVisibilityToggle(
+                                      visible,
+                                      () => _isNewPasswordVisible.value =
+                                          !visible,
                                     ),
                                   ),
                                   validator: (val) {
@@ -328,6 +404,26 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                   },
                                 );
                               },
+                            ),
+                            const SizedBox(height: 10),
+                            // Modern Dynamic Password Strength Indicator
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                _buildRequirementPill(
+                                  '8+ Characters',
+                                  _hasMinLength,
+                                ),
+                                _buildRequirementPill(
+                                  'Uppercase',
+                                  _hasUppercase,
+                                ),
+                                _buildRequirementPill(
+                                  'Lowercase',
+                                  _hasLowercase,
+                                ),
+                              ],
                             ),
                             const SizedBox(height: 16),
                             const _InputLabel(text: 'CONFIRM NEW PASSWORD'),
@@ -354,17 +450,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                                   decoration: _buildInputDecoration(
                                     hint: 'Re-enter new password',
                                     prefixIcon: CupertinoIcons.lock_shield_fill,
-                                    suffixIcon: IconButton(
-                                      icon: Icon(
-                                        visible
-                                            ? CupertinoIcons.eye_fill
-                                            : CupertinoIcons.eye_slash_fill,
-                                        color: Colors.grey,
-                                        size: 18,
-                                      ),
-                                      onPressed: () =>
-                                          _isConfirmPasswordVisible.value =
-                                              !visible,
+                                    suffixIcon: _buildVisibilityToggle(
+                                      visible,
+                                      () => _isConfirmPasswordVisible.value =
+                                          !visible,
                                     ),
                                   ),
                                   validator: (val) {
@@ -397,22 +486,35 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                           ),
                         ),
                         onPressed: _isLoading ? null : _handleSavePassword,
-                        child: _isLoading
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text(
-                                'Save New Password',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 250),
+                          transitionBuilder: (child, animation) =>
+                              FadeTransition(
+                                opacity: animation,
+                                child: ScaleTransition(
+                                  scale: animation,
+                                  child: child,
                                 ),
                               ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  key: ValueKey('loading_spinner'),
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Save New Password',
+                                  key: ValueKey('save_text'),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 32),

@@ -53,6 +53,7 @@ class NotificationItem {
 
     String formattedTime = NotificationScreen.labelJustNow;
     final createdAt = data[NotificationScreen.fieldCreatedAt];
+
     if (createdAt is Timestamp) {
       final dt = createdAt.toDate();
       final diff = DateTime.now().difference(dt);
@@ -62,36 +63,62 @@ class NotificationItem {
         formattedTime =
             '${diff.inMinutes}${NotificationScreen.suffixMinutesAgo}';
       } else if (diff.inDays < 1) {
-        formattedTime = '${diff.inHours}${NotificationScreen.suffixHoursAgo}';
+        formattedTime = '${diff.inHours}${NotificationScreen.suffixDaysAgo}';
       } else {
         formattedTime = '${diff.inDays}${NotificationScreen.suffixDaysAgo}';
+      }
+    } else if (createdAt is String) {
+      try {
+        final dt = DateTime.parse(createdAt);
+        final diff = DateTime.now().difference(dt);
+        if (diff.inMinutes < 1) {
+          formattedTime = NotificationScreen.labelJustNow;
+        } else if (diff.inHours < 1) {
+          formattedTime =
+              '${diff.inMinutes}${NotificationScreen.suffixMinutesAgo}';
+        } else if (diff.inDays < 1) {
+          formattedTime = '${diff.inHours}${NotificationScreen.suffixHoursAgo}';
+        } else {
+          formattedTime = '${diff.inDays}${NotificationScreen.suffixDaysAgo}';
+        }
+      } catch (_) {
+        formattedTime = createdAt;
       }
     } else if (data[NotificationScreen.fieldTimestamp] != null) {
       formattedTime = data[NotificationScreen.fieldTimestamp].toString();
     }
 
+    // Safely parse isRead whether stored in Firestore as bool or String
+    bool parsedIsRead = false;
+    final isReadRaw = data[NotificationScreen.fieldIsRead];
+    if (isReadRaw is bool) {
+      parsedIsRead = isReadRaw;
+    } else if (isReadRaw is String) {
+      parsedIsRead = isReadRaw.toLowerCase() == 'true';
+    }
+
     return NotificationItem(
       id: doc.id,
       senderName:
-          data[NotificationScreen.fieldSenderName] ??
+          data[NotificationScreen.fieldSenderName]?.toString() ??
           NotificationScreen.defaultSenderName,
       senderEmail:
-          data[NotificationScreen.fieldSenderEmail] ??
+          data[NotificationScreen.fieldSenderEmail]?.toString() ??
           NotificationScreen.defaultSenderEmail,
       title:
-          data[NotificationScreen.fieldTitle] ??
+          data[NotificationScreen.fieldTitle]?.toString() ??
           NotificationScreen.defaultTitle,
-      message: data[NotificationScreen.fieldMessage] ?? '',
+      message: data[NotificationScreen.fieldMessage]?.toString() ?? '',
       timestamp: formattedTime,
       type: parsedType,
       category:
-          data[NotificationScreen.fieldCategory] ??
+          data[NotificationScreen.fieldCategory]?.toString() ??
           NotificationScreen.defaultCategorySystem,
-      panelId: data[NotificationScreen.fieldPanelId],
+      panelId: data[NotificationScreen.fieldPanelId]?.toString(),
       targetUid:
-          data[NotificationScreen.fieldTargetUid] ??
+          data[NotificationScreen.fieldTargetUid]?.toString() ??
           NotificationScreen.targetAll,
-      isRead: data[NotificationScreen.fieldIsRead] ?? false,
+      isRead: parsedIsRead,
     );
   }
 }
@@ -494,6 +521,64 @@ class _NotificationScreenState extends State<NotificationScreen> {
             .limit(_currentLimit)
             .snapshots(includeMetadataChanges: false),
         builder: (context, snapshot) {
+          // Explicit Error View: Displays exact Firestore index or security rule errors
+          if (snapshot.hasError) {
+            return Scaffold(
+              backgroundColor: NotificationScreen.pageBg,
+              appBar: AppBar(
+                backgroundColor: NotificationScreen.pageBg,
+                elevation: 0,
+                leading: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back_rounded,
+                    color: Colors.black87,
+                  ),
+                  onPressed: () => Navigator.maybePop(context),
+                ),
+                title: const Text(
+                  NotificationScreen.titleScreen,
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: NotificationScreen.colorWarning,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Query Error Detected',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        '${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+
           if (snapshot.connectionState == ConnectionState.waiting &&
               !snapshot.hasData) {
             return const Center(
@@ -558,7 +643,22 @@ class _NotificationScreenState extends State<NotificationScreen> {
                             size: 22,
                           ),
                         ),
-                        child: _buildNotificationCard(item),
+                        child: TweenAnimationBuilder<double>(
+                          key: ValueKey('anim_${item.id}'),
+                          duration: const Duration(milliseconds: 350),
+                          curve: Curves.easeOutCubic,
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, (1 - value) * 12),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _buildNotificationCard(item),
+                        ),
                       );
                     },
                   ),
@@ -592,39 +692,59 @@ class _NotificationScreenState extends State<NotificationScreen> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          if (unreadCount > 0) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: NotificationScreen.colorPrimaryGreen,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                '$unreadCount',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            transitionBuilder: (child, animation) {
+              return ScaleTransition(
+                scale: animation,
+                child: FadeTransition(opacity: animation, child: child),
+              );
+            },
+            child: unreadCount > 0
+                ? Padding(
+                    key: ValueKey<int>(unreadCount),
+                    padding: const EdgeInsets.only(left: 8.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: NotificationScreen.colorPrimaryGreen,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '$unreadCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(key: ValueKey('empty_badge')),
+          ),
         ],
       ),
       actions: [
-        if (unreadCount > 0)
-          TextButton(
-            onPressed: () => _markAllAsRead(notifications),
-            child: const Text(
-              NotificationScreen.btnReadAll,
-              style: TextStyle(
-                color: NotificationScreen.colorPrimaryGreen,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: unreadCount > 0
+              ? TextButton(
+                  key: const ValueKey('btn_read_all'),
+                  onPressed: () => _markAllAsRead(notifications),
+                  child: const Text(
+                    NotificationScreen.btnReadAll,
+                    style: TextStyle(
+                      color: NotificationScreen.colorPrimaryGreen,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                )
+              : const SizedBox.shrink(key: ValueKey('btn_empty')),
+        ),
       ],
     );
   }
@@ -650,12 +770,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
 
     return GestureDetector(
       onTap: () => _openEmailReaderSheet(item),
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            if (!item.isRead)
+              BoxShadow(
+                color: iconColor.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+          ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -707,17 +836,23 @@ class _NotificationScreenState extends State<NotificationScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                        child: Text(
-                          item.title,
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 200),
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: item.isRead
                                 ? FontWeight.w600
                                 : FontWeight.w800,
                             color: Colors.black,
+                            fontFamily: Theme.of(
+                              context,
+                            ).textTheme.bodyMedium?.fontFamily,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          child: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -732,33 +867,48 @@ class _NotificationScreenState extends State<NotificationScreen> {
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    item.message,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.35,
                       color: item.isRead
                           ? Colors.grey.shade600
                           : Colors.black87,
+                      fontFamily: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.fontFamily,
+                    ),
+                    child: Text(
+                      item.message,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
               ),
             ),
-            if (!item.isRead) ...[
-              const SizedBox(width: 8),
-              Container(
-                margin: const EdgeInsets.only(top: 4),
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: iconColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) {
+                return ScaleTransition(
+                  scale: animation,
+                  child: FadeTransition(opacity: animation, child: child),
+                );
+              },
+              child: !item.isRead
+                  ? Container(
+                      key: ValueKey('unread_dot_${item.id}'),
+                      margin: const EdgeInsets.only(top: 4, left: 8),
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: iconColor,
+                        shape: BoxShape.circle,
+                      ),
+                    )
+                  : const SizedBox.shrink(key: ValueKey('read_dot')),
+            ),
           ],
         ),
       ),
@@ -766,37 +916,48 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: NotificationScreen.colorEmptyCircleBg,
-              shape: BoxShape.circle,
+    return TweenAnimationBuilder<double>(
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.scale(scale: 0.95 + (0.05 * value), child: child),
+        );
+      },
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: const BoxDecoration(
+                color: NotificationScreen.colorEmptyCircleBg,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                CupertinoIcons.bell_slash,
+                size: 40,
+                color: NotificationScreen.colorInfo,
+              ),
             ),
-            child: const Icon(
-              CupertinoIcons.bell_slash,
-              size: 40,
-              color: NotificationScreen.colorInfo,
+            const SizedBox(height: 16),
+            const Text(
+              NotificationScreen.titleEmptyState,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            NotificationScreen.titleEmptyState,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+            const SizedBox(height: 6),
+            Text(
+              NotificationScreen.msgEmptyState,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            NotificationScreen.msgEmptyState,
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -276,131 +276,211 @@ class ProfileOverviewScreen extends StatelessWidget {
                 const SizedBox(height: _ProfileDimensions.spacingMedium),
 
                 // USER SUMMARY CARD
-                _buildFloatingCard(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(
-                        _ProfileDimensions.paddingLarge,
+                TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - value) * 16),
+                        child: child,
                       ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(
-                              _ProfileDimensions.paddingSmall,
-                            ),
-                            decoration: const BoxDecoration(
-                              color: _ProfileColors.lightGreenBg,
-                              shape: BoxShape.circle,
-                            ),
-                            child: CircleAvatar(
-                              radius: _ProfileDimensions.avatarRadius,
-                              backgroundColor: _ProfileColors.darkGreen,
-                              child: Text(
-                                _getInitials(profileData.name),
-                                style: const TextStyle(
-                                  fontSize:
-                                      _ProfileDimensions.fontSizeAvatarText,
-                                  fontWeight: FontWeight.bold,
-                                  color: _ProfileColors.textWhite,
+                    );
+                  },
+                  child: _buildFloatingCard(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(
+                          _ProfileDimensions.paddingLarge,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(
+                                _ProfileDimensions.paddingSmall,
+                              ),
+                              decoration: const BoxDecoration(
+                                color: _ProfileColors.lightGreenBg,
+                                shape: BoxShape.circle,
+                              ),
+                              child: CircleAvatar(
+                                radius: _ProfileDimensions.avatarRadius,
+                                backgroundColor: _ProfileColors.darkGreen,
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 250),
+                                  child: Text(
+                                    _getInitials(profileData.name),
+                                    key: ValueKey<String>(
+                                      _getInitials(profileData.name),
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize:
+                                          _ProfileDimensions.fontSizeAvatarText,
+                                      fontWeight: FontWeight.bold,
+                                      color: _ProfileColors.textWhite,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(
-                            width: _ProfileDimensions.spacingMedium,
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  profileData.name.isEmpty
-                                      ? _ProfileStrings.noNameSet
-                                      : profileData.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: _ProfileDimensions.fontSizeName,
-                                    color: _ProfileColors.textBlack,
-                                  ),
-                                ),
-                                const SizedBox(
-                                  height: _ProfileDimensions.spacingTiny,
-                                ),
-                                Text(
-                                  profileData.role.isEmpty
-                                      ? _ProfileStrings.roleNotSpecified
-                                      : profileData.role,
-                                  style: TextStyle(
-                                    fontSize: _ProfileDimensions.fontSizeRole,
-                                    color: _ProfileColors.textSubtleGrey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
+                            const SizedBox(
+                              width: _ProfileDimensions.spacingMedium,
                             ),
-                          ),
-                        ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 250),
+                                    transitionBuilder: (child, animation) =>
+                                        FadeTransition(
+                                          opacity: animation,
+                                          child: SlideTransition(
+                                            position: Tween<Offset>(
+                                              begin: const Offset(0.0, 0.15),
+                                              end: Offset.zero,
+                                            ).animate(animation),
+                                            child: child,
+                                          ),
+                                        ),
+                                    child: Text(
+                                      profileData.name.isEmpty
+                                          ? _ProfileStrings.noNameSet
+                                          : profileData.name,
+                                      key: ValueKey<String>(profileData.name),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize:
+                                            _ProfileDimensions.fontSizeName,
+                                        color: _ProfileColors.textBlack,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(
+                                    height: _ProfileDimensions.spacingTiny,
+                                  ),
+                                  AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 250),
+                                    transitionBuilder: (child, animation) =>
+                                        FadeTransition(
+                                          opacity: animation,
+                                          child: SlideTransition(
+                                            position: Tween<Offset>(
+                                              begin: const Offset(0.0, 0.15),
+                                              end: Offset.zero,
+                                            ).animate(animation),
+                                            child: child,
+                                          ),
+                                        ),
+                                    child: Text(
+                                      profileData.role.isEmpty
+                                          ? _ProfileStrings.roleNotSpecified
+                                          : profileData.role,
+                                      key: ValueKey<String>(profileData.role),
+                                      style: TextStyle(
+                                        fontSize:
+                                            _ProfileDimensions.fontSizeRole,
+                                        color: _ProfileColors.textSubtleGrey,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
 
                 _buildSectionHeader(_ProfileStrings.sectionPersonalInformation),
 
                 // DETAILED INFO CARD
-                _buildFloatingCard(
-                  children: [
-                    _buildInfoListTile(
-                      icon: CupertinoIcons.mail_solid,
-                      label: _ProfileStrings.labelEmailAddress,
-                      value: profileData.email.isEmpty
-                          ? _ProfileStrings.notProvided
-                          : profileData.email,
-                    ),
-                    _buildDivider(),
-                    _buildInfoListTile(
-                      icon: CupertinoIcons.phone_fill,
-                      label: _ProfileStrings.labelPhoneNumber,
-                      value: profileData.phone.isEmpty
-                          ? _ProfileStrings.notProvided
-                          : profileData.phone,
-                    ),
-                  ],
+                TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 450),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - value) * 16),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _buildFloatingCard(
+                    children: [
+                      _buildInfoListTile(
+                        icon: CupertinoIcons.mail_solid,
+                        label: _ProfileStrings.labelEmailAddress,
+                        value: profileData.email.isEmpty
+                            ? _ProfileStrings.notProvided
+                            : profileData.email,
+                      ),
+                      _buildDivider(),
+                      _buildInfoListTile(
+                        icon: CupertinoIcons.phone_fill,
+                        label: _ProfileStrings.labelPhoneNumber,
+                        value: profileData.phone.isEmpty
+                            ? _ProfileStrings.notProvided
+                            : profileData.phone,
+                      ),
+                    ],
+                  ),
                 ),
 
                 const SizedBox(height: _ProfileDimensions.spacingXLarge),
 
                 // ACTION BUTTON
-                SizedBox(
-                  width: double.infinity,
-                  height: _ProfileDimensions.buttonHeight,
-                  child: ElevatedButton(
-                    onPressed:
-                        onEditPressed ??
-                        () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) =>
-                                  const EditableProfileScreen(),
-                            ),
-                          );
-                        },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _ProfileColors.darkGreen,
-                      foregroundColor: _ProfileColors.textWhite,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          _ProfileDimensions.borderRadiusLarge,
+                TweenAnimationBuilder<double>(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.easeOutCubic,
+                  tween: Tween<double>(begin: 0.0, end: 1.0),
+                  builder: (context, value, child) {
+                    return Opacity(
+                      opacity: value,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - value) * 16),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: _ProfileDimensions.buttonHeight,
+                    child: ElevatedButton(
+                      onPressed:
+                          onEditPressed ??
+                          () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const EditableProfileScreen(),
+                              ),
+                            );
+                          },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _ProfileColors.darkGreen,
+                        foregroundColor: _ProfileColors.textWhite,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                            _ProfileDimensions.borderRadiusLarge,
+                          ),
                         ),
                       ),
-                    ),
-                    child: const Text(
-                      _ProfileStrings.buttonEditProfileDetails,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: _ProfileDimensions.fontSizeButton,
+                      child: const Text(
+                        _ProfileStrings.buttonEditProfileDetails,
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: _ProfileDimensions.fontSizeButton,
+                        ),
                       ),
                     ),
                   ),
@@ -558,12 +638,26 @@ class ProfileOverviewScreen extends StatelessWidget {
           letterSpacing: _ProfileDimensions.letterSpacingLabel,
         ),
       ),
-      subtitle: Text(
-        value,
-        style: const TextStyle(
-          fontSize: _ProfileDimensions.fontSizeValue,
-          fontWeight: FontWeight.bold,
-          color: _ProfileColors.darkGreen,
+      subtitle: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        transitionBuilder: (child, animation) => FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.0, 0.15),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        ),
+        child: Text(
+          value,
+          key: ValueKey<String>(value),
+          style: const TextStyle(
+            fontSize: _ProfileDimensions.fontSizeValue,
+            fontWeight: FontWeight.bold,
+            color: _ProfileColors.darkGreen,
+          ),
         ),
       ),
     );

@@ -1,3 +1,6 @@
+// ==============================================================================
+// initial_setup_screen.dart - Real-Time Firestore Aggregator Onboarding
+// ==============================================================================
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,19 +9,20 @@ import 'package:firebase_auth/firebase_auth.dart';
 /// Type definition for document snapshots
 typedef SystemDocumentSnapshot = DocumentSnapshot<Map<String, dynamic>>;
 
-/// Centralized UI Colors
+/// Centralized UI Colors matching existing application theme
 abstract class _AppColors {
   static const Color headerGreen = Color(0xFF10CE2C);
   static const Color buttonGreen = Color(0xFF4CAE50);
-  static const Color inputBg = Color(0xFFD9D9D9);
+  static const Color inputBg = Color(0xFFD5D5D5);
   static const Color darkGreen = Color(0xFF092508);
   static const Color backgroundWhite = Colors.white;
   static final Color whiteTranslucent = Colors.white.withValues(alpha: 0.2);
   static const Color textBlack = Colors.black;
   static const Color textBlack54 = Colors.black54;
-  static const Color textBlack87 = Colors.black87;
+  static const Color textBlack87 = Colors.white;
   static const Color textBlack26 = Colors.black26;
   static const Color textBlack45 = Colors.black45;
+  static const Color emptyBgGrey = Color(0xFFF3F4F6);
   static const Color errorRed = Colors.red;
   static final Color errorRedShade900 = Colors.red.shade900;
   static const Color greenAccent = Colors.greenAccent;
@@ -26,46 +30,46 @@ abstract class _AppColors {
 
 /// Centralized Text Strings
 abstract class _AppStrings {
-  static const String hardwareSetupTitle = 'Hardware Setup';
-  static const String connectedPanelsTitle = 'Connected Solar Panels';
-  static const String addSetupButton = 'Add A Setup';
-  static const String connectingNodeTitle = 'Connecting Node...';
-  static const String connectingNodeSubtitle =
-      'Establishing real-time telemetry stream with Firebase Firestore.';
+  static const String infoSetupTitle = 'Info Setup Screen';
+  static const String connectedSetupTitle = 'Connected Setup';
   static const String noHardwareLinked =
-      'No hardware linked yet. Tap "Add A Setup" below to claim a node.';
-  static const String setupInstructions =
-      'Power on your Orange Pi / Microcontroller node and connect to Wi-Fi before proceeding.';
-  static const String defaultPanelName = 'Solar Panel';
-  static const String defaultStatusOnline = 'Online';
-  static const String unitWatts = 'Watts';
+      'No hardware linked to your account yet.';
+  static const String addOrangePiButton = 'Add an OrangePi';
+  static const String addAggregatorButton = 'Add an aggregator';
+  static const String connectToAggregatorTitle = 'Connect to the Orangepi';
+  static const String aggregatorFormInstruction =
+      'Enter the Aggregator ID and 6-digit passcode shown on the LCD screen.';
+  static const String defaultAggregatorPrefix = 'Site ';
 
-  static const String enterInfoTitle = 'Enter your info.';
-  static const String hintPanelIdentifier = 'Panel Identifier';
-  static const String hintRatedCapacity = 'Rated Max Capacity (Watts)';
-  static const String hintNodeId = 'Microcontroller Node ID';
+  static const String hintAggregatorId =
+      'Aggregator Device ID (e.g. OPI_A1B2C3)';
+  static const String hintPasscode = '6-Digit Passcode from LCD Screen';
   static const String continueButton = 'Continue';
 
-  static const String valPanelName = 'Please give your panel a name';
-  static const String valCapacity = 'Enter rated wattage';
-  static const String valNodeId = 'Enter hardware Device ID';
+  static const String valAggregatorId =
+      'Please enter your Orange Pi Aggregator ID';
+  static const String valPasscode = 'Please enter security passcode';
 
   static const String errMustBeLoggedIn =
-      'You must be logged in to claim a device.';
-  static const String errDeviceNotFoundPrefix = 'Device ID "';
-  static const String errDeviceNotFoundSuffix =
-      '" not found. Make sure your Orange Pi / Microcontroller is powered on and configured.';
-  static const String errDeviceAlreadyLinked =
-      'This device is already linked to another account.';
-  static const String errClaimingPrefix = 'Error claiming device: ';
+      'You must be logged in to claim an aggregator.';
+  static const String errAggregatorNotFoundPrefix = 'Aggregator ID "';
+  static const String errAggregatorNotFoundSuffix =
+      '" not found. Make sure your Orange Pi is powered on and running.';
+  static const String errAggregatorOffline =
+      'Orange Pi is currently OFFLINE. Please check power or internet connection.';
+  static const String errAggregatorAlreadyLinked =
+      'This Orange Pi is already linked to another account.';
+  static const String errInvalidPasscode =
+      'Invalid Passcode. Please verify the code displayed on your screen.';
+  static const String errClaimingPrefix = 'Error claiming aggregator: ';
   static const String errExceptionPrefix = 'Exception: ';
-  static const String msgHardwareLinkedSuccess =
-      'Solar Hardware Linked Successfully!';
+  static const String msgAggregatorLinkedSuccess =
+      'Orange Pi Aggregator Linked Successfully!';
 }
 
-/// Centralized Layout Dimensions & Numeric Defaults
+/// Centralized Layout Dimensions & Defaults
 abstract class _AppDimensions {
-  static const double fontHeader = 24.0;
+  static const double fontHeader = 22.0;
   static const double fontTitleLarge = 22.0;
   static const double fontSectionHeader = 18.0;
   static const double fontButtonText = 16.0;
@@ -76,7 +80,6 @@ abstract class _AppDimensions {
   static const double buttonHeight = 52.0;
   static const double progressIndicatorSize = 44.0;
   static const double progressStrokeWidth = 3.5;
-  static const double statusDotSize = 10.0;
   static const double handleWidth = 40.0;
   static const double handleHeight = 4.0;
 
@@ -93,41 +96,26 @@ abstract class _AppDimensions {
   static const double spacingStandard = 14.0;
   static const double spacingSmall = 12.0;
   static const double spacingTiny = 8.0;
-  static const double spacingMicro = 2.0;
-
-  static const double defaultCapacityWatts = 300.0;
-  static const int defaultPanelOrder = 0;
 }
 
-/// Centralized Firestore Collection Names & Field Constants
+/// Centralized Firestore Collections & Fields
 abstract class _AppFirestore {
+  static const String collectionAggregators = 'aggregators';
   static const String collectionSystemStatus = 'system_status';
   static const String docCurrent = 'current';
 
   static const String collectionDevices = 'devices';
   static const String collectionUsers = 'users';
-  static const String subCollectionPanels = 'panels';
 
   static const String fieldOwnerUid = 'owner_uid';
-  static const String fieldOwnerUidCamel = 'ownerUid';
-  static const String fieldDeviceCode = 'device_code';
-  static const String fieldClaimedAt = 'claimed_at';
-  static const String fieldDefaultPanelId = 'defaultPanelId';
-  static const String fieldPairedDevices = 'pairedDevices';
-
-  static const String fieldNodeId = 'node_id';
-  static const String fieldName = 'name';
-  static const String fieldCapacity = 'capacity';
-  static const String fieldLinkedAt = 'linked_at';
+  static const String fieldAggregatorId = 'aggregator_id';
+  static const String fieldAggregatorName = 'aggregator_name';
+  static const String fieldDetectedPanels = 'detected_panels';
   static const String fieldStatus = 'status';
-
-  static const String fieldPanels = 'panels';
-  static const String fieldPanelId = 'panel_id';
-  static const String fieldPanelName = 'panel_name';
-  static const String fieldGroup = 'group';
-  static const String fieldPanelOrder = 'panel_order';
-  static const String fieldMetadata = 'metadata';
-  static const String fieldRatedPowerW = 'rated_power_w';
+  static const String fieldLastSeen = 'last_seen';
+  static const String fieldClaimedAt = 'claimed_at';
+  static const String fieldPasscode = 'passcode';
+  static const String fieldIsClaimed = 'is_claimed';
 }
 
 class InitialSetupScreen extends StatefulWidget {
@@ -141,13 +129,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     with AutomaticKeepAliveClientMixin {
   bool _isConfiguring = false;
 
-  // Cached Stream Instance & Auth Subscription
-  Stream<SystemDocumentSnapshot>? _panelsStream;
   StreamSubscription<User?>? _authSubscription;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _aggregatorsStream;
   String? _currentUid;
 
   @override
-  bool get wantKeepAlive => true; // Prevents state disposal when navigating
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -167,12 +154,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         setState(() {
           _currentUid = user?.uid;
           if (_currentUid != null) {
-            _panelsStream = FirebaseFirestore.instance
-                .collection(_AppFirestore.collectionSystemStatus)
-                .doc(_AppFirestore.docCurrent)
-                .snapshots(includeMetadataChanges: false);
+            _aggregatorsStream = FirebaseFirestore.instance
+                .collection(_AppFirestore.collectionAggregators)
+                .where(_AppFirestore.fieldOwnerUid, isEqualTo: _currentUid)
+                .snapshots();
           } else {
-            _panelsStream = null;
+            _aggregatorsStream = null;
           }
         });
       }
@@ -220,7 +207,168 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     );
   }
 
-  void _showAddPanelWizard(BuildContext context) {
+  void _showRenameDialog(String aggId, String currentName) {
+    final controller = TextEditingController(text: currentName);
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+          ),
+          title: const Text(
+            'Rename Site',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Enter new site name',
+              filled: true,
+              fillColor: _AppColors.inputBg,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: _AppDimensions.spacingMedium,
+                vertical: _AppDimensions.spacingSmall,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: _AppColors.textBlack54),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _AppColors.buttonGreen,
+                foregroundColor: _AppColors.backgroundWhite,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    _AppDimensions.radiusCard,
+                  ),
+                ),
+              ),
+              onPressed: () async {
+                final newName = controller.text.trim();
+                if (newName.isNotEmpty) {
+                  Navigator.pop(dialogContext);
+                  try {
+                    await FirebaseFirestore.instance
+                        .collection(_AppFirestore.collectionAggregators)
+                        .doc(aggId)
+                        .update({_AppFirestore.fieldAggregatorName: newName});
+                    if (mounted) {
+                      _showSnackBar(
+                        context,
+                        'Site renamed to "$newName" successfully!',
+                      );
+                    }
+                  } catch (e) {
+                    if (mounted) {
+                      _showSnackBar(
+                        context,
+                        'Error renaming site: $e',
+                        isError: true,
+                      );
+                    }
+                  }
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showDeleteConfirmModal(String aggId, String siteName) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: _AppColors.errorRed),
+              SizedBox(width: 8),
+              Text(
+                'Disconnect Site',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to disconnect "$siteName"?\n\nThis will un-link the Orange Pi setup from your account and revert it to displaying its ID and passcode on the LCD screen.',
+            style: const TextStyle(fontSize: 14, color: _AppColors.textBlack87),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: _AppColors.textBlack54),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _AppColors.errorRed,
+                foregroundColor: _AppColors.backgroundWhite,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    _AppDimensions.radiusCard,
+                  ),
+                ),
+              ),
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  final newPasscode =
+                      (100000 +
+                              (DateTime.now().millisecondsSinceEpoch % 900000))
+                          .toString();
+                  await FirebaseFirestore.instance
+                      .collection(_AppFirestore.collectionAggregators)
+                      .doc(aggId)
+                      .update({
+                        _AppFirestore.fieldOwnerUid: '',
+                        _AppFirestore.fieldIsClaimed: false,
+                        _AppFirestore.fieldPasscode: newPasscode,
+                      });
+                  if (mounted) {
+                    _showSnackBar(
+                      context,
+                      '"$siteName" disconnected successfully.',
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    _showSnackBar(
+                      context,
+                      'Error disconnecting site: $e',
+                      isError: true,
+                    );
+                  }
+                }
+              },
+              child: const Text('Disconnect'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAddAggregatorWizard(BuildContext context) {
     if (_currentUid == null) {
       _showSnackBar(context, _AppStrings.errMustBeLoggedIn, isError: true);
       return;
@@ -230,8 +378,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (modalContext) => _AddPanelBottomSheet(
-        onSubmitted: (panelName, capacity, nodeId) async {
+      builder: (modalContext) => _AddAggregatorBottomSheet(
+        onSubmitted: (aggregatorId, passcode) async {
           Navigator.pop(modalContext);
           if (!mounted) return;
 
@@ -243,89 +391,85 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
             await FirebaseFirestore.instance.runTransaction((
               transaction,
             ) async {
-              final deviceRef = FirebaseFirestore.instance
-                  .collection(_AppFirestore.collectionDevices)
-                  .doc(nodeId);
+              final aggRef = FirebaseFirestore.instance
+                  .collection(_AppFirestore.collectionAggregators)
+                  .doc(aggregatorId);
 
-              final docSnap = await transaction.get(deviceRef);
+              final docSnap = await transaction.get(aggRef);
 
               if (!docSnap.exists) {
                 throw Exception(
-                  '${_AppStrings.errDeviceNotFoundPrefix}$nodeId${_AppStrings.errDeviceNotFoundSuffix}',
+                  '${_AppStrings.errAggregatorNotFoundPrefix}$aggregatorId${_AppStrings.errAggregatorNotFoundSuffix}',
                 );
               }
 
-              final data = docSnap.data();
-              final existingOwner =
-                  data?[_AppFirestore.fieldOwnerUid] ??
-                  data?[_AppFirestore.fieldOwnerUidCamel] ??
-                  '';
+              final aggData = docSnap.data();
+              final existingOwner = aggData?[_AppFirestore.fieldOwnerUid] ?? '';
+              final storedPasscode =
+                  aggData?[_AppFirestore.fieldPasscode] ?? '';
+              final bool isClaimed =
+                  aggData?[_AppFirestore.fieldIsClaimed] ?? false;
+              final status = aggData?[_AppFirestore.fieldStatus] ?? 'Offline';
+              final Timestamp? lastSeen =
+                  aggData?[_AppFirestore.fieldLastSeen] as Timestamp?;
 
               if (existingOwner.toString().isNotEmpty &&
-                  existingOwner != _currentUid) {
-                throw Exception(_AppStrings.errDeviceAlreadyLinked);
+                      existingOwner != _currentUid ||
+                  isClaimed) {
+                throw Exception(_AppStrings.errAggregatorAlreadyLinked);
               }
 
-              final double parsedCapacity =
-                  double.tryParse(capacity) ??
-                  _AppDimensions.defaultCapacityWatts;
+              if (storedPasscode.toString().isNotEmpty &&
+                  storedPasscode.toString() != passcode) {
+                throw Exception(_AppStrings.errInvalidPasscode);
+              }
 
-              // 1. Claim device in global devices collection
-              transaction.set(deviceRef, {
+              bool isOnline = status == 'Online';
+              if (lastSeen != null) {
+                final diffSec = DateTime.now()
+                    .difference(lastSeen.toDate())
+                    .inSeconds;
+                if (diffSec > 120) isOnline = false;
+              }
+
+              if (!isOnline) {
+                throw Exception(_AppStrings.errAggregatorOffline);
+              }
+
+              final userAggsQuery = await FirebaseFirestore.instance
+                  .collection(_AppFirestore.collectionAggregators)
+                  .where(_AppFirestore.fieldOwnerUid, isEqualTo: _currentUid)
+                  .get();
+
+              final siteNumber = userAggsQuery.docs.length + 1;
+              final existingName =
+                  aggData?[_AppFirestore.fieldAggregatorName] as String?;
+              final defaultSiteName =
+                  (existingName == null ||
+                      existingName.trim().isEmpty ||
+                      existingName == 'Orangepi Device')
+                  ? '${_AppStrings.defaultAggregatorPrefix}$siteNumber'
+                  : existingName;
+
+              transaction.set(aggRef, {
                 _AppFirestore.fieldOwnerUid: _currentUid,
-                _AppFirestore.fieldDeviceCode: nodeId,
+                _AppFirestore.fieldIsClaimed: true,
+                _AppFirestore.fieldPasscode: '',
+                _AppFirestore.fieldAggregatorName: defaultSiteName,
                 _AppFirestore.fieldClaimedAt: FieldValue.serverTimestamp(),
               }, SetOptions(merge: true));
 
-              // 2. Update user root document with defaultPanelId and array of paired devices
               final userDocRef = FirebaseFirestore.instance
                   .collection(_AppFirestore.collectionUsers)
                   .doc(_currentUid);
 
               transaction.set(userDocRef, {
-                _AppFirestore.fieldDefaultPanelId: nodeId,
-                _AppFirestore.fieldPairedDevices: FieldValue.arrayUnion([
-                  nodeId,
-                ]),
-              }, SetOptions(merge: true));
-
-              // 3. Save linked panel details under user profile subcollection
-              final userPanelRef = userDocRef
-                  .collection(_AppFirestore.subCollectionPanels)
-                  .doc(nodeId);
-
-              transaction.set(userPanelRef, {
-                _AppFirestore.fieldNodeId: nodeId,
-                _AppFirestore.fieldName: panelName,
-                _AppFirestore.fieldCapacity: parsedCapacity,
-                _AppFirestore.fieldLinkedAt: FieldValue.serverTimestamp(),
-                _AppFirestore.fieldStatus: _AppStrings.defaultStatusOnline,
-              });
-
-              // 4. Register panel in system_status/current for live telemetry updates
-              final statusRef = FirebaseFirestore.instance
-                  .collection(_AppFirestore.collectionSystemStatus)
-                  .doc(_AppFirestore.docCurrent);
-
-              transaction.set(statusRef, {
-                _AppFirestore.fieldPanels: {
-                  nodeId: {
-                    _AppFirestore.fieldPanelId: nodeId,
-                    _AppFirestore.fieldPanelName: panelName,
-                    _AppFirestore.fieldOwnerUid: _currentUid,
-                    _AppFirestore.fieldGroup: null,
-                    _AppFirestore.fieldPanelOrder:
-                        _AppDimensions.defaultPanelOrder,
-                    _AppFirestore.fieldMetadata: {
-                      _AppFirestore.fieldRatedPowerW: parsedCapacity,
-                    },
-                  },
-                },
+                'activeAggregatorId': aggregatorId,
               }, SetOptions(merge: true));
             });
 
             if (!mounted) return;
-            _showSnackBar(context, _AppStrings.msgHardwareLinkedSuccess);
+            _showSnackBar(context, _AppStrings.msgAggregatorLinkedSuccess);
           } catch (e) {
             if (!mounted) return;
             final errorMsg = e is Exception
@@ -352,110 +496,130 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       backgroundColor: _AppColors.headerGreen,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            // ==================== 1. GREEN HEADER ====================
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: _AppDimensions.spacingLarge,
-                vertical: _AppDimensions.spacingMediumLarge,
-              ),
-              child: Row(
-                children: [
-                  if (Navigator.canPop(context))
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        margin: const EdgeInsets.only(
-                          right: _AppDimensions.spacingSmall,
-                        ),
-                        padding: const EdgeInsets.all(
-                          _AppDimensions.spacingTiny,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _AppColors.whiteTranslucent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.arrow_back_rounded,
-                          color: _AppColors.backgroundWhite,
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  const Text(
-                    _AppStrings.hardwareSetupTitle,
-                    style: TextStyle(
-                      fontSize: _AppDimensions.fontHeader,
-                      fontWeight: FontWeight.bold,
-                      color: _AppColors.backgroundWhite,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _aggregatorsStream,
+          builder: (context, snapshot) {
+            final docs = snapshot.data?.docs ?? [];
+            final bool hasLinkedDevice = docs.isNotEmpty;
 
-            // ==================== 2. WHITE CURVED BODY CONTAINER ====================
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: _AppColors.backgroundWhite,
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(_AppDimensions.radiusCurvedTop),
-                    topRight: Radius.circular(_AppDimensions.radiusCurvedTop),
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _AppDimensions.spacingLarge,
+                    vertical: _AppDimensions.spacingMediumLarge,
                   ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(
-                    _AppDimensions.spacingCurvedPadding,
-                  ),
-                  child: Column(
+                  child: Row(
                     children: [
-                      Expanded(
-                        child: SingleChildScrollView(
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 300),
-                            child: _isConfiguring
-                                ? _buildLoadingState()
-                                : _buildSetupState(context),
+                      if (Navigator.canPop(context))
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pop(context);
+                          },
+                          child: Container(
+                            margin: const EdgeInsets.only(
+                              right: _AppDimensions.spacingSmall,
+                            ),
+                            padding: const EdgeInsets.all(
+                              _AppDimensions.spacingTiny,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _AppColors.whiteTranslucent,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.arrow_back_rounded,
+                              color: _AppColors.backgroundWhite,
+                              size: 20,
+                            ),
                           ),
                         ),
-                      ),
-
-                      const SizedBox(height: _AppDimensions.spacingMedium),
-
-                      // ==================== 3. ACTION BUTTON ====================
-                      SizedBox(
-                        width: double.infinity,
-                        height: _AppDimensions.buttonHeight,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _AppColors.buttonGreen,
-                            foregroundColor: _AppColors.backgroundWhite,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                _AppDimensions.radiusCard,
-                              ),
-                            ),
-                          ),
-                          onPressed: () => _showAddPanelWizard(context),
-                          child: const Text(
-                            _AppStrings.addSetupButton,
-                            style: TextStyle(
-                              fontSize: _AppDimensions.fontButtonText,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                      const Text(
+                        _AppStrings.infoSetupTitle,
+                        style: TextStyle(
+                          fontSize: _AppDimensions.fontHeader,
+                          fontWeight: FontWeight.bold,
+                          color: _AppColors.backgroundWhite,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ),
-          ],
+
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: _AppColors.backgroundWhite,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(
+                          _AppDimensions.radiusCurvedTop,
+                        ),
+                        topRight: Radius.circular(
+                          _AppDimensions.radiusCurvedTop,
+                        ),
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(
+                        _AppDimensions.spacingCurvedPadding,
+                      ),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: SingleChildScrollView(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 350),
+                                switchInCurve: Curves.easeOutCubic,
+                                switchOutCurve: Curves.easeInCubic,
+                                child: _isConfiguring
+                                    ? _buildLoadingState()
+                                    : _buildAggregatorListStep(
+                                        context,
+                                        docs,
+                                        snapshot.connectionState,
+                                      ),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: _AppDimensions.spacingMedium),
+
+                          SizedBox(
+                            width: double.infinity,
+                            height: _AppDimensions.buttonHeight,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _AppColors.buttonGreen,
+                                foregroundColor: _AppColors.backgroundWhite,
+                                elevation: 0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    _AppDimensions.radiusCard,
+                                  ),
+                                ),
+                              ),
+                              onPressed: () =>
+                                  _showAddAggregatorWizard(context),
+                              child: Text(
+                                hasLinkedDevice
+                                    ? _AppStrings.addAggregatorButton
+                                    : _AppStrings.addOrangePiButton,
+                                style: const TextStyle(
+                                  fontSize: _AppDimensions.fontButtonText,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -467,8 +631,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
       padding: const EdgeInsets.all(_AppDimensions.spacingExtraLarge),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(
+        children: const [
+          SizedBox(
             width: _AppDimensions.progressIndicatorSize,
             height: _AppDimensions.progressIndicatorSize,
             child: CircularProgressIndicator(
@@ -477,18 +641,18 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
               strokeCap: StrokeCap.round,
             ),
           ),
-          const SizedBox(height: _AppDimensions.spacingLarge),
-          const Text(
-            _AppStrings.connectingNodeTitle,
+          SizedBox(height: _AppDimensions.spacingLarge),
+          Text(
+            'Verifying Aggregator...',
             style: TextStyle(
               fontSize: _AppDimensions.fontSectionHeader,
               fontWeight: FontWeight.bold,
               color: _AppColors.textBlack,
             ),
           ),
-          const SizedBox(height: _AppDimensions.spacingTiny),
-          const Text(
-            _AppStrings.connectingNodeSubtitle,
+          SizedBox(height: _AppDimensions.spacingTiny),
+          Text(
+            'Establishing handshake with Orange Pi site controller.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: _AppDimensions.fontBodyMedium,
@@ -501,15 +665,28 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
     );
   }
 
-  Widget _buildSetupState(BuildContext context) {
+  Widget _buildAggregatorListStep(
+    BuildContext context,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    ConnectionState connectionState,
+  ) {
+    if (connectionState == ConnectionState.waiting && docs.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(_AppDimensions.spacingLarge),
+          child: CircularProgressIndicator(color: _AppColors.buttonGreen),
+        ),
+      );
+    }
+
     return Column(
-      key: const ValueKey('setup'),
+      key: const ValueKey('aggregatorListStep'),
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.start,
       children: [
         const SizedBox(height: _AppDimensions.spacingTiny),
         const Text(
-          _AppStrings.connectedPanelsTitle,
+          _AppStrings.connectedSetupTitle,
           style: TextStyle(
             fontSize: _AppDimensions.fontTitleLarge,
             fontWeight: FontWeight.bold,
@@ -518,167 +695,241 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
         ),
         const SizedBox(height: _AppDimensions.spacingCurvedPadding),
 
-        StreamBuilder<SystemDocumentSnapshot>(
-          stream: _panelsStream,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(_AppDimensions.spacingLarge),
-                  child: CircularProgressIndicator(
-                    color: _AppColors.buttonGreen,
-                  ),
-                ),
-              );
-            }
-
-            final statusData = snapshot.data?.data() ?? {};
-            final panelsMap =
-                statusData[_AppFirestore.fieldPanels]
-                    as Map<String, dynamic>? ??
-                {};
-
-            if (panelsMap.isEmpty) {
-              return Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(
-                  _AppDimensions.spacingMediumLarge,
-                ),
-                margin: const EdgeInsets.only(
-                  bottom: _AppDimensions.spacingMedium,
-                ),
-                decoration: BoxDecoration(
-                  color: _AppColors.inputBg,
-                  borderRadius: BorderRadius.circular(
-                    _AppDimensions.radiusCard,
-                  ),
-                ),
-                child: const Center(
-                  child: Text(
-                    _AppStrings.noHardwareLinked,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: _AppDimensions.fontBodyMedium,
-                      color: _AppColors.textBlack54,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              );
-            }
-
-            return Column(
-              children: panelsMap.entries.map((entry) {
-                final pId = entry.key;
-                final pData = entry.value as Map<String, dynamic>? ?? {};
-                final pName =
-                    pData[_AppFirestore.fieldPanelName] ??
-                    pData[_AppFirestore.fieldName] ??
-                    _AppStrings.defaultPanelName;
-                final pCapacity =
-                    pData[_AppFirestore.fieldMetadata]?[_AppFirestore
-                            .fieldRatedPowerW]
-                        ?.toString() ??
-                    _AppDimensions.defaultCapacityWatts.toInt().toString();
-
-                return Padding(
-                  padding: const EdgeInsets.only(
-                    bottom: _AppDimensions.spacingSmall,
-                  ),
-                  child: _buildPanelNodeTile(
-                    id: pId,
-                    name: pName,
-                    capacity: '$pCapacity ${_AppStrings.unitWatts}',
-                    nodeId: pId,
-                    status: _AppStrings.defaultStatusOnline,
-                  ),
-                );
-              }).toList(),
-            );
-          },
-        ),
-
-        const SizedBox(height: _AppDimensions.spacingSmall),
-
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(_AppDimensions.spacingMedium),
-          decoration: BoxDecoration(
-            color: _AppColors.inputBg,
-            borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
-          ),
-          child: const Text(
-            _AppStrings.setupInstructions,
-            style: TextStyle(
-              fontSize: _AppDimensions.fontBodyMedium,
-              color: _AppColors.textBlack87,
-              fontWeight: FontWeight.w500,
-              height: 1.3,
+        if (docs.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(_AppDimensions.spacingLarge),
+            decoration: BoxDecoration(
+              color: _AppColors.emptyBgGrey,
+              borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
             ),
+            child: const Center(
+              child: Text(
+                _AppStrings.noHardwareLinked,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: _AppDimensions.fontBodyMedium,
+                  color: _AppColors.textBlack54,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          )
+        else
+          Column(
+            children: docs.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final claimedDoc = entry.value;
+              final aggData = claimedDoc.data();
+              final rawName = aggData[_AppFirestore.fieldAggregatorName]
+                  ?.toString();
+              final aggName =
+                  (rawName != null &&
+                      rawName.trim().isNotEmpty &&
+                      rawName != 'Orangepi Device')
+                  ? rawName
+                  : '${_AppStrings.defaultAggregatorPrefix}${idx + 1}';
+              final aggId =
+                  aggData[_AppFirestore.fieldAggregatorId] ?? claimedDoc.id;
+              final List<dynamic> detectedPanels =
+                  aggData[_AppFirestore.fieldDetectedPanels]
+                      as List<dynamic>? ??
+                  [];
+
+              return _SwipeableAggregatorCard(
+                key: ValueKey<String>('swipe_agg_$aggId'),
+                aggId: aggId.toString(),
+                name: aggName,
+                panelCount: detectedPanels.length,
+                onRename: () => _showRenameDialog(aggId.toString(), aggName),
+                onDelete: () =>
+                    _showDeleteConfirmModal(aggId.toString(), aggName),
+              );
+            }).toList(),
           ),
-        ),
       ],
     );
   }
+}
 
-  Widget _buildPanelNodeTile({
-    required String id,
-    required String name,
-    required String capacity,
-    required String nodeId,
-    String status = _AppStrings.defaultStatusOnline,
-  }) {
+class _SwipeableAggregatorCard extends StatefulWidget {
+  final String aggId;
+  final String name;
+  final int panelCount;
+  final VoidCallback onRename;
+  final VoidCallback onDelete;
+
+  const _SwipeableAggregatorCard({
+    super.key,
+    required this.aggId,
+    required this.name,
+    required this.panelCount,
+    required this.onRename,
+    required this.onDelete,
+  });
+
+  @override
+  State<_SwipeableAggregatorCard> createState() =>
+      _SwipeableAggregatorCardState();
+}
+
+class _SwipeableAggregatorCardState extends State<_SwipeableAggregatorCard> {
+  double _dragOffset = 0.0;
+  static const double _actionsWidth = 150.0;
+
+  void _close() {
+    if (mounted) {
+      setState(() {
+        _dragOffset = 0.0;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: _AppDimensions.spacingMediumLarge,
-        vertical: _AppDimensions.spacingMedium,
-      ),
-      decoration: BoxDecoration(
-        color: _AppColors.inputBg,
-        borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
-      ),
-      child: Row(
+      width: double.infinity,
+      height: 76.0,
+      margin: const EdgeInsets.only(bottom: _AppDimensions.spacingSmall),
+      child: Stack(
         children: [
-          Container(
-            width: _AppDimensions.statusDotSize,
-            height: _AppDimensions.statusDotSize,
-            decoration: const BoxDecoration(
-              color: _AppColors.buttonGreen,
-              shape: BoxShape.circle,
+          // Background Action Buttons
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(_AppDimensions.radiusCard),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      _close();
+                      widget.onRename();
+                    },
+                    child: Container(
+                      width: 75.0,
+                      height: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF2B88D8),
+                        borderRadius: BorderRadius.horizontal(
+                          left: Radius.circular(8.0),
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'Rename',
+                        style: TextStyle(
+                          color: _AppColors.backgroundWhite,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: () {
+                      _close();
+                      widget.onDelete();
+                    },
+                    child: Container(
+                      width: 75.0,
+                      height: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: _AppColors.errorRed,
+                        borderRadius: BorderRadius.horizontal(
+                          right: Radius.circular(_AppDimensions.radiusCard),
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(
+                          color: _AppColors.backgroundWhite,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: _AppDimensions.spacingStandard),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontSize: _AppDimensions.fontBodyBold,
-                    fontWeight: FontWeight.bold,
-                    color: _AppColors.textBlack87,
-                  ),
+          // Front Card Body
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 100),
+            curve: Curves.easeOutCubic,
+            top: 0,
+            bottom: 0,
+            left: _dragOffset,
+            right: -_dragOffset,
+            child: GestureDetector(
+              onHorizontalDragUpdate: (details) {
+                setState(() {
+                  _dragOffset = (_dragOffset + details.delta.dx).clamp(
+                    -_actionsWidth,
+                    0.0,
+                  );
+                });
+              },
+              onHorizontalDragEnd: (details) {
+                setState(() {
+                  if (_dragOffset < -_actionsWidth / 2) {
+                    _dragOffset = -_actionsWidth;
+                  } else {
+                    _dragOffset = 0.0;
+                  }
+                });
+              },
+              onTap: () {
+                if (_dragOffset < 0) {
+                  _close();
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: _AppDimensions.spacingMediumLarge,
+                  vertical: _AppDimensions.spacingSmall,
                 ),
-                const SizedBox(height: _AppDimensions.spacingMicro),
-                Text(
-                  '$nodeId • $capacity',
-                  style: const TextStyle(
-                    fontSize: _AppDimensions.fontSubtitle,
-                    color: _AppColors.textBlack54,
-                    fontWeight: FontWeight.w500,
+                decoration: BoxDecoration(
+                  color: _AppColors.backgroundWhite,
+                  borderRadius: BorderRadius.circular(
+                    _AppDimensions.radiusCard,
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          Text(
-            status,
-            style: const TextStyle(
-              fontSize: _AppDimensions.fontBodyMedium,
-              fontWeight: FontWeight.bold,
-              color: _AppColors.buttonGreen,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.name,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${widget.panelCount} Panels Connected',
+                      style: const TextStyle(
+                        fontSize: _AppDimensions.fontSubtitle,
+                        color: _AppColors.textBlack54,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -687,34 +938,32 @@ class _InitialSetupScreenState extends State<InitialSetupScreen>
   }
 }
 
-class _AddPanelBottomSheet extends StatefulWidget {
-  final Function(String panelName, String capacity, String nodeId) onSubmitted;
+class _AddAggregatorBottomSheet extends StatefulWidget {
+  final Function(String aggregatorId, String passcode) onSubmitted;
 
-  const _AddPanelBottomSheet({required this.onSubmitted});
+  const _AddAggregatorBottomSheet({required this.onSubmitted});
 
   @override
-  State<_AddPanelBottomSheet> createState() => _AddPanelBottomSheetState();
+  State<_AddAggregatorBottomSheet> createState() =>
+      _AddAggregatorBottomSheetState();
 }
 
-class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
+class _AddAggregatorBottomSheetState extends State<_AddAggregatorBottomSheet> {
   final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _panelNameController;
-  late final TextEditingController _capacityController;
-  late final TextEditingController _nodeIdController;
+  late final TextEditingController _idController;
+  late final TextEditingController _passcodeController;
 
   @override
   void initState() {
     super.initState();
-    _panelNameController = TextEditingController();
-    _capacityController = TextEditingController();
-    _nodeIdController = TextEditingController();
+    _idController = TextEditingController();
+    _passcodeController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _panelNameController.dispose();
-    _capacityController.dispose();
-    _nodeIdController.dispose();
+    _idController.dispose();
+    _passcodeController.dispose();
     super.dispose();
   }
 
@@ -755,37 +1004,38 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
                   ),
                 ),
                 const Text(
-                  _AppStrings.enterInfoTitle,
+                  _AppStrings.connectToAggregatorTitle,
                   style: TextStyle(
                     fontSize: _AppDimensions.fontTitleLarge,
                     fontWeight: FontWeight.bold,
                     color: _AppColors.textBlack,
                   ),
                 ),
+                const SizedBox(height: _AppDimensions.spacingSmall),
+                const Text(
+                  _AppStrings.aggregatorFormInstruction,
+                  style: TextStyle(
+                    fontSize: _AppDimensions.fontBodyMedium,
+                    color: _AppColors.textBlack54,
+                    height: 1.3,
+                  ),
+                ),
                 const SizedBox(height: _AppDimensions.spacingCurvedPadding),
 
                 _buildCleanTextField(
-                  controller: _panelNameController,
-                  hint: _AppStrings.hintPanelIdentifier,
+                  controller: _idController,
+                  hint: _AppStrings.hintAggregatorId,
                   validator: (val) => val == null || val.trim().isEmpty
-                      ? _AppStrings.valPanelName
+                      ? _AppStrings.valAggregatorId
                       : null,
                 ),
                 const SizedBox(height: _AppDimensions.spacingMedium),
                 _buildCleanTextField(
-                  controller: _capacityController,
-                  hint: _AppStrings.hintRatedCapacity,
-                  keyboardType: TextInputType.number,
+                  controller: _passcodeController,
+                  hint: _AppStrings.hintPasscode,
+                  obscureText: true,
                   validator: (val) => val == null || val.trim().isEmpty
-                      ? _AppStrings.valCapacity
-                      : null,
-                ),
-                const SizedBox(height: _AppDimensions.spacingMedium),
-                _buildCleanTextField(
-                  controller: _nodeIdController,
-                  hint: _AppStrings.hintNodeId,
-                  validator: (val) => val == null || val.trim().isEmpty
-                      ? _AppStrings.valNodeId
+                      ? _AppStrings.valPasscode
                       : null,
                 ),
 
@@ -808,9 +1058,8 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
                     onPressed: () {
                       if (_formKey.currentState?.validate() ?? false) {
                         widget.onSubmitted(
-                          _panelNameController.text.trim(),
-                          _capacityController.text.trim(),
-                          _nodeIdController.text.trim().toUpperCase(),
+                          _idController.text.trim(),
+                          _passcodeController.text.trim(),
                         );
                       }
                     },
@@ -835,11 +1084,11 @@ class _AddPanelBottomSheetState extends State<_AddPanelBottomSheet> {
     required TextEditingController controller,
     required String hint,
     required String? Function(String?) validator,
-    TextInputType keyboardType = TextInputType.text,
+    bool obscureText = false,
   }) {
     return TextFormField(
       controller: controller,
-      keyboardType: keyboardType,
+      obscureText: obscureText,
       validator: validator,
       style: const TextStyle(
         fontWeight: FontWeight.w500,

@@ -6,11 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class BarData {
   final String label;
-  final double
-  val; // Dynamic ratio (0.0 to 1.0) scaled against specific panel capacity/peak
+  final double val;
   final bool isHighlight;
   final bool isInProgress;
-  final String peakVal; // Display text for peak bar (e.g., "280 W")
+  final String peakVal;
 
   const BarData({
     required this.label,
@@ -35,7 +34,7 @@ class MonitoringRecord {
 
 class DegradationYearPoint {
   final String yearLabel;
-  final double efficiencyRatio; // Ratio (0.0 to 1.0)
+  final double efficiencyRatio;
 
   const DegradationYearPoint({
     required this.yearLabel,
@@ -65,7 +64,7 @@ class MonitoringScreen extends StatefulWidget {
 
   // Default Telemetry & System Fallbacks
   static const String defaultPanelId = 'panel_01';
-  static const String defaultPanelName = 'SOLAR - 1';
+  static const String defaultPanelName = 'Panel_1 - OPI_BE3737AF';
   static const double defaultRatedPowerW = 300.0;
   static const double defaultAnnualDegradationRate = 0.45;
   static const double defaultCurrentEfficiencyRatio = 1.0;
@@ -79,6 +78,7 @@ class MonitoringScreen extends StatefulWidget {
   static const String fieldPanels = 'panels';
   static const String fieldMetadata = 'metadata';
   static const String fieldDiagnostics = 'diagnostics';
+  static const String fieldSensorDiagnostics = 'sensor_diagnostics';
   static const String fieldDegradeHistory = 'degrade_history';
   static const String fieldYearLabel = 'yearLabel';
   static const String fieldEfficiencyRatio = 'efficiencyRatio';
@@ -86,6 +86,7 @@ class MonitoringScreen extends StatefulWidget {
   static const String fieldRatedPowerW = 'rated_power_w';
   static const String fieldDegradationRateAnnual = 'degradation_rate_annual';
   static const String fieldCurrentEfficiencyRatio = 'current_efficiency_ratio';
+  static const String fieldCondition = 'condition';
   static const String colAnalytics = 'analytics';
   static const String subColDaily = 'daily';
   static const String subColWeekly = 'weekly';
@@ -104,9 +105,12 @@ class MonitoringScreen extends StatefulWidget {
   static const String statusActive = 'Active';
   static const String statusInactive = 'Inactive';
   static const String statusSensorProblems = 'Sensor Problems';
-  static const String sensorLight = 'Light Sensor';
-  static const String sensorTemperature = 'Temperature Sensor';
-  static const String sensorHumidity = 'Humidity Sensor';
+  static const String statusPanelRemoved = 'Panel Removed / Disconnected';
+  static const String sensorVoltage = 'Voltage Sensor (INA219)';
+  static const String sensorCurrent = 'Current Sensor (ACS712)';
+  static const String sensorLight = 'Light Sensor (LDR)';
+  static const String sensorTemperature = 'Temperature Sensor (DHT11/BME)';
+  static const String sensorHumidity = 'Humidity Sensor (DHT11/BME)';
   static const String statusWorking = 'Working';
   static const String statusError = 'Error';
 
@@ -134,7 +138,6 @@ class MonitoringScreen extends StatefulWidget {
   static const String currencyPesos = '₱';
   static const String titleLoading = 'Loading...';
 
-  // Calendar & Calculation Constants
   static const List<String> monthNames = [
     'Jan',
     'Feb',
@@ -161,42 +164,41 @@ class MonitoringScreen extends StatefulWidget {
 }
 
 class _MonitoringScreenState extends State<MonitoringScreen> {
-  // Effective Panel ID resolved dynamically
   String _effectivePanelId = MonitoringScreen.defaultPanelId;
 
-  // Timeframe & Page Controllers
   int _selectedTimeframe = 0; // 0: Daily, 1: Weekly, 2: Annually
   late PageController _pageController;
   int _activePageIndex = 0;
 
-  // Controllers & Keys
   late final ScrollController _scrollController;
   final GlobalKey _questionMarkKey = GlobalKey();
 
   int _degradationSlideIndex = 0;
   bool _showPanelNameInAppBar = false;
 
-  // Panel Condition & Status Options
   String _selectedCondition = MonitoringScreen.conditionGood;
   String _selectedStatus = MonitoringScreen.statusActive;
 
-  // Tooltip Overlay & Fade States
+  // Live dynamic 5-sensor hardware health flags from Firestore
+  bool _voltageSensorWorking = true;
+  bool _currentSensorWorking = true;
+  bool _lightSensorWorking = true;
+  bool _tempSensorWorking = true;
+  bool _humiditySensorWorking = true;
+
   bool _showTooltip = false;
   bool _tooltipVisible = false;
   Timer? _fadeTimer;
 
-  // Live Stream Subscriptions
   StreamSubscription<DocumentSnapshot>? _statusSubscription;
   StreamSubscription<QuerySnapshot>? _analyticsSubscription;
 
-  // Panel Data State
   String _panelName = MonitoringScreen.defaultPanelName;
   double _panelRatedPowerW = MonitoringScreen.defaultRatedPowerW;
   double _annualDegradationRate = MonitoringScreen.defaultAnnualDegradationRate;
   double _currentEfficiencyRatio =
       MonitoringScreen.defaultCurrentEfficiencyRatio;
 
-  // Dynamic Datasets fetched from Firestore
   List<MonitoringRecord> _dailyRecords = [];
   List<MonitoringRecord> _weeklyRecords = [];
   List<MonitoringRecord> _annualRecords = [];
@@ -267,6 +269,27 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                 panelDoc[MonitoringScreen.fieldDiagnostics]
                     as Map<String, dynamic>? ??
                 {};
+            final sensorDiag =
+                panelDoc[MonitoringScreen.fieldSensorDiagnostics]
+                    as Map<String, dynamic>? ??
+                {};
+
+            final panelRemoved =
+                (diagnostics['panel_removed'] == true) ||
+                (panelDoc['panel_removed'] == true);
+
+            final voltWorking = sensorDiag['voltage_sensor_working'] ?? true;
+            final currWorking = sensorDiag['current_sensor_working'] ?? true;
+            final lightWorking = sensorDiag['light_sensor_working'] ?? true;
+            final tempWorking = sensorDiag['temp_sensor_working'] ?? true;
+            final humiWorking = sensorDiag['humidity_sensor_working'] ?? true;
+
+            final failedSensors = <String>[];
+            if (!voltWorking) failedSensors.add('Voltage Sensor');
+            if (!currWorking) failedSensors.add('Current Sensor');
+            if (!lightWorking) failedSensors.add('Light Sensor');
+            if (!tempWorking) failedSensors.add('Temperature Sensor');
+            if (!humiWorking) failedSensors.add('Humidity Sensor');
 
             final historyRaw =
                 (diagnostics[MonitoringScreen.fieldDegradeHistory] as List?) ??
@@ -282,6 +305,37 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               );
             }).toList();
 
+            final currentEff =
+                (diagnostics[MonitoringScreen.fieldCurrentEfficiencyRatio]
+                        as num?)
+                    ?.toDouble() ??
+                MonitoringScreen.defaultCurrentEfficiencyRatio;
+
+            // Broadcast top status text
+            final determinedStatus = panelRemoved
+                ? MonitoringScreen.statusPanelRemoved
+                : failedSensors.isNotEmpty
+                ? MonitoringScreen.statusSensorProblems
+                : MonitoringScreen.statusActive;
+
+            // Strictly constrain bottom text to only 3 standard strings
+            final explicitCondition =
+                panelDoc[MonitoringScreen.fieldCondition]?.toString() ??
+                diagnostics[MonitoringScreen.fieldCondition]?.toString();
+
+            String determinedCondition;
+            if (explicitCondition == MonitoringScreen.conditionGood ||
+                explicitCondition == MonitoringScreen.conditionFair ||
+                explicitCondition == MonitoringScreen.conditionBad) {
+              determinedCondition = explicitCondition!;
+            } else if (panelRemoved || currentEff < 0.60) {
+              determinedCondition = MonitoringScreen.conditionBad;
+            } else if (failedSensors.isNotEmpty || currentEff < 0.80) {
+              determinedCondition = MonitoringScreen.conditionFair;
+            } else {
+              determinedCondition = MonitoringScreen.conditionGood;
+            }
+
             setState(() {
               _panelName =
                   panelDoc[MonitoringScreen.fieldPanelName] ??
@@ -295,11 +349,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                           as num?)
                       ?.toDouble() ??
                   MonitoringScreen.defaultAnnualDegradationRate;
-              _currentEfficiencyRatio =
-                  (diagnostics[MonitoringScreen.fieldCurrentEfficiencyRatio]
-                          as num?)
-                      ?.toDouble() ??
-                  MonitoringScreen.defaultCurrentEfficiencyRatio;
+              _currentEfficiencyRatio = currentEff;
+              _selectedCondition = determinedCondition;
+
+              _voltageSensorWorking = voltWorking;
+              _currentSensorWorking = currWorking;
+              _lightSensorWorking = lightWorking;
+              _tempSensorWorking = tempWorking;
+              _humiditySensorWorking = humiWorking;
+              _selectedStatus = determinedStatus;
 
               if (points.isNotEmpty) {
                 _degradationSlides = [points];
@@ -333,6 +391,22 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
     List<MonitoringRecord> records = [];
 
+    dynamic getBarValueRaw(Map<String, dynamic> barsRaw, String key) {
+      if (barsRaw.containsKey(key)) return barsRaw[key];
+      final aliasMap = {
+        '06:00': ['6AM', '06:00', '6:00', '06:00:00'],
+        '09:00': ['9AM', '09:00', '9:00', '09:00:00'],
+        '12:00': ['12NN', '12:00', '12PM', '12:00:00'],
+        '15:00': ['3PM', '15:00', '3PM', '15:00:00'],
+        '18:00': ['6PM', '18:00', '6PM', '18:00:00'],
+      };
+      final aliases = aliasMap[key] ?? [key];
+      for (final alias in aliases) {
+        if (barsRaw.containsKey(alias)) return barsRaw[alias];
+      }
+      return null;
+    }
+
     if (_selectedTimeframe == 2) {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
@@ -355,6 +429,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           } else if (rawVal is num) {
             v = rawVal.toDouble();
           }
+          v = max(0.0, v);
           firstHalfTotal += v;
           if (v > firstHalfPeak) firstHalfPeak = v;
         }
@@ -380,9 +455,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           } else if (rawVal is num) {
             v = rawVal.toDouble();
           }
+          v = max(0.0, v);
 
-          final heightRatio = (v / firstHalfCeiling).clamp(0.0, 1.0);
-          final isPeak = firstHalfPeak > 0 && v == firstHalfPeak;
+          final heightRatio = (firstHalfTotal <= 0.0 || v <= 0.0)
+              ? 0.0
+              : (v / firstHalfCeiling).clamp(0.0, 1.0);
+          final isPeak =
+              firstHalfPeak > 0 &&
+              v == firstHalfPeak &&
+              v > 0 &&
+              firstHalfTotal > 0;
 
           firstHalfBars.add(
             BarData(
@@ -402,7 +484,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           MonitoringRecord(
             title: '$yearId - ${MonitoringScreen.labelFirstHalf}',
             bars: firstHalfBars,
-            totalKwh: firstHalfTotal.toStringAsFixed(0),
+            totalKwh: max(0.0, firstHalfTotal).toStringAsFixed(0),
           ),
         );
 
@@ -421,6 +503,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           } else if (rawVal is num) {
             v = rawVal.toDouble();
           }
+          v = max(0.0, v);
           secondHalfTotal += v;
           if (v > secondHalfPeak) secondHalfPeak = v;
         }
@@ -446,9 +529,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           } else if (rawVal is num) {
             v = rawVal.toDouble();
           }
+          v = max(0.0, v);
 
-          final heightRatio = (v / secondHalfCeiling).clamp(0.0, 1.0);
-          final isPeak = secondHalfPeak > 0 && v == secondHalfPeak;
+          final heightRatio = (secondHalfTotal <= 0.0 || v <= 0.0)
+              ? 0.0
+              : (v / secondHalfCeiling).clamp(0.0, 1.0);
+          final isPeak =
+              secondHalfPeak > 0 &&
+              v == secondHalfPeak &&
+              v > 0 &&
+              secondHalfTotal > 0;
 
           secondHalfBars.add(
             BarData(
@@ -468,7 +558,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           MonitoringRecord(
             title: '$yearId - ${MonitoringScreen.labelSecondHalf}',
             bars: secondHalfBars,
-            totalKwh: secondHalfTotal.toStringAsFixed(0),
+            totalKwh: max(0.0, secondHalfTotal).toStringAsFixed(0),
           ),
         );
       }
@@ -476,11 +566,10 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       for (var doc in snapshot.docs) {
         final data = doc.data() as Map<String, dynamic>;
         final title = data[MonitoringScreen.fieldTitle] as String? ?? '';
-        final totalKwh =
-            (data[MonitoringScreen.fieldTotalKwh] as num?)
-                ?.toDouble()
-                .toStringAsFixed(0) ??
-            '0';
+        final double rawTotalKwh =
+            (data[MonitoringScreen.fieldTotalKwh] as num?)?.toDouble() ?? 0.0;
+        final safeTotalKwh = max(0.0, rawTotalKwh);
+        final totalKwh = safeTotalKwh.toStringAsFixed(0);
         final barsRaw =
             data[MonitoringScreen.fieldBars] as Map<String, dynamic>? ?? {};
 
@@ -495,6 +584,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           } else if (val is num) {
             v = val.toDouble();
           }
+          v = max(0.0, v);
           if (v > peakVal) peakVal = v;
         });
 
@@ -504,7 +594,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         );
 
         List<BarData> bars = [];
-        barsRaw.forEach((key, val) {
+        final bucketKeys = _selectedTimeframe == 0
+            ? ['06:00', '09:00', '12:00', '15:00', '18:00']
+            : barsRaw.keys.toList();
+
+        for (var key in bucketKeys) {
+          final val = getBarValueRaw(barsRaw, key);
           double rawVal = 0.0;
           String displayLabel = '';
 
@@ -519,8 +614,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
             rawVal = val.toDouble();
           }
 
-          final heightRatio = (rawVal / ceiling).clamp(0.0, 1.0);
-          final isPeak = peakVal > 0 && rawVal == peakVal;
+          rawVal = max(0.0, rawVal);
+
+          final heightRatio = (safeTotalKwh <= 0.0 || rawVal <= 0.0)
+              ? 0.0
+              : (rawVal / ceiling).clamp(0.0, 1.0);
+          final isPeak =
+              peakVal > 0 &&
+              rawVal == peakVal &&
+              rawVal > 0 &&
+              safeTotalKwh > 0;
 
           bars.add(
             BarData(
@@ -534,13 +637,15 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   : '',
             ),
           );
-        });
+        }
 
         records.add(
           MonitoringRecord(title: title, bars: bars, totalKwh: totalKwh),
         );
       }
     }
+
+    final targetIndex = records.isNotEmpty ? records.length - 1 : 0;
 
     setState(() {
       if (_selectedTimeframe == 0) {
@@ -550,9 +655,14 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       } else {
         _annualRecords = records;
       }
-      _activePageIndex = records.isNotEmpty ? records.length - 1 : 0;
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(_activePageIndex);
+      _activePageIndex = targetIndex;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _pageController.hasClients && records.isNotEmpty) {
+        if (_pageController.page?.round() != targetIndex) {
+          _pageController.jumpToPage(targetIndex);
+        }
       }
     });
   }
@@ -629,12 +739,26 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
       ),
       builder: (context) {
         final sensors = [
-          {'name': MonitoringScreen.sensorLight, 'working': true},
+          {
+            'name': MonitoringScreen.sensorVoltage,
+            'working': _voltageSensorWorking,
+          },
+          {
+            'name': MonitoringScreen.sensorCurrent,
+            'working': _currentSensorWorking,
+          },
+          {
+            'name': MonitoringScreen.sensorLight,
+            'working': _lightSensorWorking,
+          },
           {
             'name': MonitoringScreen.sensorTemperature,
-            'working': _selectedStatus != MonitoringScreen.statusSensorProblems,
+            'working': _tempSensorWorking,
           },
-          {'name': MonitoringScreen.sensorHumidity, 'working': true},
+          {
+            'name': MonitoringScreen.sensorHumidity,
+            'working': _humiditySensorWorking,
+          },
         ];
 
         return Container(
@@ -658,7 +782,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       Text(
                         sensor['name'] as String,
                         style: const TextStyle(
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -723,7 +847,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -797,7 +921,8 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     final double persistentLatestEfficiency = _currentEfficiencyRatio;
 
     final Color statusColor =
-        _selectedStatus == MonitoringScreen.statusSensorProblems
+        _selectedStatus == MonitoringScreen.statusPanelRemoved ||
+            _selectedStatus == MonitoringScreen.statusSensorProblems
         ? Colors.red
         : _selectedStatus == MonitoringScreen.statusInactive
         ? Colors.grey
@@ -861,21 +986,24 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       ),
                     ),
                   ),
-                  Container(
-                    height: 48,
-                    width: 48,
-                    decoration: BoxDecoration(
-                      color: MonitoringScreen.cardBg,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: MonitoringScreen.appBarBorderGreen,
-                        width: 1.5,
+                  GestureDetector(
+                    onTap: _showSensorStatusModal,
+                    child: Container(
+                      height: 48,
+                      width: 48,
+                      decoration: BoxDecoration(
+                        color: MonitoringScreen.cardBg,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: MonitoringScreen.appBarBorderGreen,
+                          width: 1.5,
+                        ),
                       ),
-                    ),
-                    child: const Icon(
-                      Icons.power_settings_new_rounded,
-                      color: Colors.green,
-                      size: 22,
+                      child: const Icon(
+                        Icons.power_settings_new_rounded,
+                        color: Colors.green,
+                        size: 22,
+                      ),
                     ),
                   ),
                 ],
@@ -889,97 +1017,96 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   // STATUS CARD
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: MonitoringScreen.cardBg,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            GestureDetector(
-                              onTap: _showSensorStatusModal,
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    decoration: BoxDecoration(
-                                      color: statusColor,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _selectedStatus,
-                                    style: TextStyle(
-                                      color: statusColor,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _panelName,
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.black,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value: _selectedCondition,
-                                isDense: true,
-                                icon: const Icon(
-                                  Icons.arrow_drop_down,
-                                  size: 18,
-                                ),
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: MonitoringScreen.conditionGood,
-                                    child: Text(MonitoringScreen.conditionGood),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: MonitoringScreen.conditionFair,
-                                    child: Text(MonitoringScreen.conditionFair),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: MonitoringScreen.conditionBad,
-                                    child: Text(MonitoringScreen.conditionBad),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  if (value != null) {
-                                    setState(() {
-                                      _selectedCondition = value;
-                                    });
-                                  }
-                                },
-                              ),
-                            ),
-                          ],
+                  TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween<double>(begin: 0.0, end: 1.0),
+                    builder: (context, value, child) {
+                      return Opacity(
+                        opacity: value,
+                        child: Transform.translate(
+                          offset: Offset(0, (1 - value) * 16),
+                          child: child,
                         ),
-                        const Icon(
-                          Icons.solar_power_rounded,
-                          size: 56,
-                          color: Colors.black,
-                        ),
-                      ],
+                      );
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: MonitoringScreen.cardBg,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                GestureDetector(
+                                  onTap: _showSensorStatusModal,
+                                  child: Row(
+                                    children: [
+                                      AnimatedContainer(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(
+                                          color: statusColor,
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        _selectedStatus,
+                                        style: TextStyle(
+                                          color: statusColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _panelName,
+                                  style: const TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _selectedCondition,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color:
+                                        _selectedCondition ==
+                                            MonitoringScreen.conditionBad
+                                        ? Colors.redAccent
+                                        : _selectedCondition ==
+                                              MonitoringScreen.conditionFair
+                                        ? Colors.orangeAccent
+                                        : Colors.grey.shade600,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.solar_power_rounded,
+                            size: 56,
+                            color: Colors.black,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -995,381 +1122,485 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   const SizedBox(height: 12),
 
                   // BAR CHART CARD
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: MonitoringScreen.cardBg,
-                      borderRadius: BorderRadius.circular(28),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.baseline,
-                                  textBaseline: TextBaseline.alphabetic,
-                                  children: [
-                                    Text(
-                                      activeRecord.totalKwh,
-                                      style: const TextStyle(
-                                        fontSize: 36,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      MonitoringScreen.unitKwh,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.black,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                const Text(
-                                  MonitoringScreen.titleEnergyProduction,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black54,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            _buildTimeframeDropdown(),
-                          ],
+                  TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween<double>(begin: 0.0, end: 1.0),
+                    builder: (context, value, child) {
+                      return Opacity(
+                        opacity: value,
+                        child: Transform.translate(
+                          offset: Offset(0, (1 - value) * 16),
+                          child: child,
                         ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          height: 220,
-                          child: records.isEmpty
-                              ? const Center(child: CircularProgressIndicator())
-                              : PageView.builder(
-                                  key: ValueKey<int>(_selectedTimeframe),
-                                  controller: _pageController,
-                                  itemCount: records.length,
-                                  onPageChanged: (index) {
-                                    setState(() => _activePageIndex = index);
-                                  },
-                                  itemBuilder: (context, recordIndex) {
-                                    final List<BarData> barData =
-                                        records[recordIndex].bars;
-                                    return Column(
-                                      children: [
-                                        Expanded(
-                                          child: LayoutBuilder(
-                                            builder: (context, constraints) {
-                                              const double topHeadroom = 36.0;
-                                              final double availableBarHeight =
-                                                  constraints.maxHeight -
-                                                  topHeadroom;
-
-                                              return Stack(
-                                                clipBehavior: Clip.none,
-                                                children: [
-                                                  Positioned(
-                                                    top: topHeadroom,
-                                                    left: 0,
-                                                    right: 0,
-                                                    bottom: 0,
-                                                    child: Column(
-                                                      mainAxisAlignment:
-                                                          MainAxisAlignment
-                                                              .spaceBetween,
-                                                      children: List.generate(
-                                                        5,
-                                                        (_) =>
-                                                            _buildDashedLine(),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  Positioned(
-                                                    top: topHeadroom,
-                                                    left: 0,
-                                                    right: 0,
-                                                    bottom: 0,
-                                                    child: Row(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .end,
-                                                      children: barData.map<Widget>((
-                                                        item,
-                                                      ) {
-                                                        final calculatedBarHeight =
-                                                            availableBarHeight *
-                                                            item.val.clamp(
-                                                              0.0,
-                                                              1.0,
-                                                            );
-
-                                                        Color barColor;
-                                                        if (item.isInProgress) {
-                                                          barColor =
-                                                              MonitoringScreen
-                                                                  .lightGreen;
-                                                        } else if (item
-                                                            .isHighlight) {
-                                                          barColor =
-                                                              MonitoringScreen
-                                                                  .accentOrange;
-                                                        } else {
-                                                          barColor =
-                                                              MonitoringScreen
-                                                                  .darkGreen;
-                                                        }
-
-                                                        return Expanded(
-                                                          child: Stack(
-                                                            alignment: Alignment
-                                                                .bottomCenter,
-                                                            clipBehavior:
-                                                                Clip.none,
-                                                            children: [
-                                                              Container(
-                                                                width: 40,
-                                                                height:
-                                                                    calculatedBarHeight,
-                                                                decoration: BoxDecoration(
-                                                                  color:
-                                                                      barColor,
-                                                                  borderRadius:
-                                                                      const BorderRadius.vertical(
-                                                                        top:
-                                                                            Radius.circular(
-                                                                              8,
-                                                                            ),
-                                                                      ),
-                                                                ),
-                                                              ),
-                                                              if (item
-                                                                  .peakVal
-                                                                  .isNotEmpty)
-                                                                Positioned(
-                                                                  bottom:
-                                                                      calculatedBarHeight +
-                                                                      6,
-                                                                  child: _buildHighlightLabel(
-                                                                    item.peakVal,
-                                                                    item.isInProgress,
-                                                                  ),
-                                                                ),
-                                                            ],
-                                                          ),
-                                                        );
-                                                      }).toList(),
-                                                    ),
-                                                  ),
-                                                ],
-                                              );
-                                            },
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: MonitoringScreen.cardBg,
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.baseline,
+                                    textBaseline: TextBaseline.alphabetic,
+                                    children: [
+                                      AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        transitionBuilder: (child, animation) {
+                                          return FadeTransition(
+                                            opacity: animation,
+                                            child: SlideTransition(
+                                              position: Tween<Offset>(
+                                                begin: const Offset(0.0, 0.15),
+                                                end: Offset.zero,
+                                              ).animate(animation),
+                                              child: child,
+                                            ),
+                                          );
+                                        },
+                                        child: Text(
+                                          activeRecord.totalKwh,
+                                          key: ValueKey<String>(
+                                            'total_kwh_${activeRecord.title}_${activeRecord.totalKwh}',
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize: 36,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.black,
                                           ),
                                         ),
-                                        const SizedBox(height: 12),
-                                        Row(
-                                          children: barData.map<Widget>((item) {
-                                            return Expanded(
-                                              child: Center(
-                                                child: Text(
-                                                  item.label,
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: item.isInProgress
-                                                        ? MonitoringScreen
-                                                              .darkGreen
-                                                        : Colors.black87,
-                                                  ),
-                                                ),
-                                              ),
-                                            );
-                                          }).toList(),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      const Text(
+                                        MonitoringScreen.unitKwh,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black,
                                         ),
-                                      ],
-                                    );
-                                  },
-                                ),
-                        ),
-                        const SizedBox(height: 20),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: MonitoringScreen.controlBg,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              if (safeIndex > 0)
-                                IconButton(
-                                  icon: const Icon(Icons.chevron_left_rounded),
-                                  onPressed: () => _navigateToPage(
-                                    safeIndex - 1,
-                                    records.length,
+                                      ),
+                                    ],
                                   ),
-                                  constraints: const BoxConstraints(),
-                                  padding: EdgeInsets.zero,
-                                )
-                              else
-                                const SizedBox(width: 24),
-                              Text(
-                                activeRecord.title,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.black,
-                                ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    MonitoringScreen.titleEnergyProduction,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.black54,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              if (safeIndex < records.length - 1)
-                                IconButton(
-                                  icon: const Icon(Icons.chevron_right_rounded),
-                                  onPressed: () => _navigateToPage(
-                                    safeIndex + 1,
-                                    records.length,
-                                  ),
-                                  constraints: const BoxConstraints(),
-                                  padding: EdgeInsets.zero,
-                                )
-                              else
-                                const SizedBox(width: 24),
+                              _buildTimeframeDropdown(),
                             ],
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            height: 220,
+                            child: records.isEmpty
+                                ? const Center(
+                                    child: CircularProgressIndicator(),
+                                  )
+                                : PageView.builder(
+                                    key: ValueKey<int>(_selectedTimeframe),
+                                    controller: _pageController,
+                                    itemCount: records.length,
+                                    onPageChanged: (index) {
+                                      setState(() => _activePageIndex = index);
+                                    },
+                                    itemBuilder: (context, recordIndex) {
+                                      final List<BarData> barData =
+                                          records[recordIndex].bars;
+                                      return Column(
+                                        children: [
+                                          Expanded(
+                                            child: LayoutBuilder(
+                                              builder: (context, constraints) {
+                                                const double topHeadroom = 36.0;
+                                                final double
+                                                availableBarHeight =
+                                                    constraints.maxHeight -
+                                                    topHeadroom;
+
+                                                return Stack(
+                                                  clipBehavior: Clip.none,
+                                                  children: [
+                                                    Positioned(
+                                                      top: topHeadroom,
+                                                      left: 0,
+                                                      right: 0,
+                                                      bottom: 0,
+                                                      child: Column(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .spaceBetween,
+                                                        children: List.generate(
+                                                          5,
+                                                          (_) =>
+                                                              _buildDashedLine(),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    Positioned(
+                                                      top: topHeadroom,
+                                                      left: 0,
+                                                      right: 0,
+                                                      bottom: 0,
+                                                      child: Row(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .end,
+                                                        children: barData.map<Widget>((
+                                                          item,
+                                                        ) {
+                                                          final calculatedBarHeight =
+                                                              availableBarHeight *
+                                                              item.val.clamp(
+                                                                0.0,
+                                                                1.0,
+                                                              );
+
+                                                          Color barColor;
+                                                          if (item
+                                                              .isInProgress) {
+                                                            barColor =
+                                                                MonitoringScreen
+                                                                    .lightGreen;
+                                                          } else if (item
+                                                              .isHighlight) {
+                                                            barColor =
+                                                                MonitoringScreen
+                                                                    .accentOrange;
+                                                          } else {
+                                                            barColor =
+                                                                MonitoringScreen
+                                                                    .darkGreen;
+                                                          }
+
+                                                          return Expanded(
+                                                            child: Stack(
+                                                              alignment: Alignment
+                                                                  .bottomCenter,
+                                                              clipBehavior:
+                                                                  Clip.none,
+                                                              children: [
+                                                                AnimatedContainer(
+                                                                  duration:
+                                                                      const Duration(
+                                                                        milliseconds:
+                                                                            400,
+                                                                      ),
+                                                                  curve: Curves
+                                                                      .easeOutCubic,
+                                                                  width: 32,
+                                                                  height:
+                                                                      calculatedBarHeight,
+                                                                  decoration: BoxDecoration(
+                                                                    color:
+                                                                        barColor,
+                                                                    borderRadius:
+                                                                        const BorderRadius.vertical(
+                                                                          top: Radius.circular(
+                                                                            8,
+                                                                          ),
+                                                                        ),
+                                                                  ),
+                                                                ),
+                                                                if (item
+                                                                    .peakVal
+                                                                    .isNotEmpty)
+                                                                  Positioned(
+                                                                    bottom:
+                                                                        calculatedBarHeight +
+                                                                        6,
+                                                                    child: _buildHighlightLabel(
+                                                                      item.peakVal,
+                                                                      item.isInProgress,
+                                                                    ),
+                                                                  ),
+                                                              ],
+                                                            ),
+                                                          );
+                                                        }).toList(),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                );
+                                              },
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: barData.map<Widget>((
+                                              item,
+                                            ) {
+                                              return Expanded(
+                                                child: Center(
+                                                  child: Text(
+                                                    item.label,
+                                                    style: TextStyle(
+                                                      fontSize: 10,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: item.isInProgress
+                                                          ? MonitoringScreen
+                                                                .darkGreen
+                                                          : Colors.black87,
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            }).toList(),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                          ),
+                          const SizedBox(height: 20),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: MonitoringScreen.controlBg,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                if (safeIndex > 0)
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.chevron_left_rounded,
+                                    ),
+                                    onPressed: () => _navigateToPage(
+                                      safeIndex - 1,
+                                      records.length,
+                                    ),
+                                    constraints: const BoxConstraints(),
+                                    padding: EdgeInsets.zero,
+                                  )
+                                else
+                                  const SizedBox(width: 24),
+                                Text(
+                                  activeRecord.title,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.black,
+                                  ),
+                                ),
+                                if (safeIndex < records.length - 1)
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.chevron_right_rounded,
+                                    ),
+                                    onPressed: () => _navigateToPage(
+                                      safeIndex + 1,
+                                      records.length,
+                                    ),
+                                    constraints: const BoxConstraints(),
+                                    padding: EdgeInsets.zero,
+                                  )
+                                else
+                                  const SizedBox(width: 24),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
 
                   // PERSISTENT SUMMARY KPI BOXES
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(18),
-                          decoration: BoxDecoration(
-                            color: MonitoringScreen.cardBg,
-                            borderRadius: BorderRadius.circular(22),
+                  TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween<double>(begin: 0.0, end: 1.0),
+                    builder: (context, value, child) {
+                      return Opacity(
+                        opacity: value,
+                        child: Transform.translate(
+                          offset: Offset(0, (1 - value) * 16),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: MonitoringScreen.cardBg,
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      MonitoringScreen.titleTotalEnergy,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: const BoxDecoration(
+                                        color: MonitoringScreen.energyIconBg,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.bolt_rounded,
+                                        size: 16,
+                                        color: MonitoringScreen.darkGreen,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    AnimatedSwitcher(
+                                      duration: const Duration(
+                                        milliseconds: 300,
+                                      ),
+                                      transitionBuilder: (child, animation) {
+                                        return FadeTransition(
+                                          opacity: animation,
+                                          child: SlideTransition(
+                                            position: Tween<Offset>(
+                                              begin: const Offset(0.0, 0.15),
+                                              end: Offset.zero,
+                                            ).animate(animation),
+                                            child: child,
+                                          ),
+                                        );
+                                      },
+                                      child: Text(
+                                        latestRecord.totalKwh,
+                                        key: ValueKey<String>(
+                                          'kpi_energy_${latestRecord.totalKwh}',
+                                        ),
+                                        style: const TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.black,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    const Text(
+                                      MonitoringScreen.unitKwh,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.black54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    MonitoringScreen.titleTotalEnergy,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black54,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.all(18),
+                            decoration: BoxDecoration(
+                              color: MonitoringScreen.cardBg,
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      MonitoringScreen.titleTotalSavings,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black54,
+                                      ),
                                     ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: const BoxDecoration(
-                                      color: MonitoringScreen.energyIconBg,
-                                      shape: BoxShape.circle,
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: const BoxDecoration(
+                                        color: MonitoringScreen.savingsIconBg,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.payments_rounded,
+                                        size: 16,
+                                        color: Colors.teal,
+                                      ),
                                     ),
-                                    child: const Icon(
-                                      Icons.bolt_rounded,
-                                      size: 16,
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 300),
+                                  transitionBuilder: (child, animation) {
+                                    return FadeTransition(
+                                      opacity: animation,
+                                      child: SlideTransition(
+                                        position: Tween<Offset>(
+                                          begin: const Offset(0.0, 0.15),
+                                          end: Offset.zero,
+                                        ).animate(animation),
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+                                  child: Text(
+                                    '${MonitoringScreen.currencyPesos} ${(max(0.0, double.tryParse(latestRecord.totalKwh) ?? 0.0) * MonitoringScreen.defaultTariffRateMultiplier).toStringAsFixed(2)}',
+                                    key: ValueKey<String>(
+                                      'kpi_savings_${latestRecord.totalKwh}',
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
                                       color: MonitoringScreen.darkGreen,
                                     ),
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.baseline,
-                                textBaseline: TextBaseline.alphabetic,
-                                children: [
-                                  Text(
-                                    latestRecord.totalKwh,
-                                    style: const TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.black,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  const Text(
-                                    MonitoringScreen.unitKwh,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.black54,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(18),
-                          decoration: BoxDecoration(
-                            color: MonitoringScreen.cardBg,
-                            borderRadius: BorderRadius.circular(22),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text(
-                                    MonitoringScreen.titleTotalSavings,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black54,
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: const BoxDecoration(
-                                      color: MonitoringScreen.savingsIconBg,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.payments_rounded,
-                                      size: 16,
-                                      color: Colors.teal,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                '${MonitoringScreen.currencyPesos} ${((double.tryParse(latestRecord.totalKwh) ?? 0.0) * MonitoringScreen.defaultTariffRateMultiplier).toStringAsFixed(2)}',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w900,
-                                  color: MonitoringScreen.darkGreen,
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 24),
 
@@ -1384,304 +1615,356 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: MonitoringScreen.cardBg,
-                          borderRadius: BorderRadius.circular(28),
+                  TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 400),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween<double>(begin: 0.0, end: 1.0),
+                    builder: (context, value, child) {
+                      return Opacity(
+                        opacity: value,
+                        child: Transform.translate(
+                          offset: Offset(0, (1 - value) * 16),
+                          child: child,
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Column(
+                      );
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: MonitoringScreen.cardBg,
+                            borderRadius: BorderRadius.circular(28),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.baseline,
+                                        textBaseline: TextBaseline.alphabetic,
+                                        children: [
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 300,
+                                            ),
+                                            transitionBuilder:
+                                                (child, animation) {
+                                                  return FadeTransition(
+                                                    opacity: animation,
+                                                    child: SlideTransition(
+                                                      position: Tween<Offset>(
+                                                        begin: const Offset(
+                                                          0.0,
+                                                          0.15,
+                                                        ),
+                                                        end: Offset.zero,
+                                                      ).animate(animation),
+                                                      child: child,
+                                                    ),
+                                                  );
+                                                },
+                                            child: Text(
+                                              _annualDegradationRate
+                                                  .toStringAsFixed(2),
+                                              key: ValueKey<double>(
+                                                _annualDegradationRate,
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 36,
+                                                fontWeight: FontWeight.w900,
+                                                color: Colors.black,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Text(
+                                            MonitoringScreen.unitDegradation,
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                              color: Colors.black54,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      const Text(
+                                        MonitoringScreen.titleDegradationRate,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.black54,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  GestureDetector(
+                                    key: _questionMarkKey,
+                                    onTap: _openTooltip,
+                                    child: Container(
+                                      height: 32,
+                                      width: 32,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: _showTooltip
+                                              ? MonitoringScreen.darkGreen
+                                              : Colors.grey.shade400,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.help_outline_rounded,
+                                        size: 18,
+                                        color: _showTooltip
+                                            ? MonitoringScreen.darkGreen
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+
+                              // LINE GRAPH
+                              SizedBox(
+                                height: 180,
+                                child: CustomPaint(
+                                  size: Size.infinite,
+                                  painter: _DegradationLineChartPainter(
+                                    lineColor: MonitoringScreen.darkGreen,
+                                    points: activeSlidePoints,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: activeSlidePoints.map((p) {
+                                  final bool isCurrentYear =
+                                      p.yearLabel ==
+                                      DateTime.now().year.toString();
+                                  return Text(
+                                    p.yearLabel,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: isCurrentYear
+                                          ? MonitoringScreen.darkGreen
+                                          : Colors.black54,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 20),
+
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: MonitoringScreen.controlBg,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.chevron_left_rounded,
+                                        size: 20,
+                                      ),
+                                      onPressed: _degradationSlideIndex > 0
+                                          ? () => setState(
+                                              () => _degradationSlideIndex--,
+                                            )
+                                          : null,
+                                      constraints: const BoxConstraints(),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                    Text(
+                                      activeSlidePoints.isNotEmpty
+                                          ? '${activeSlidePoints.first.yearLabel} - ${activeSlidePoints.last.yearLabel}'
+                                          : '',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.chevron_right_rounded,
+                                        size: 20,
+                                      ),
+                                      onPressed:
+                                          _degradationSlideIndex <
+                                              _degradationSlides.length - 1
+                                          ? () => setState(
+                                              () => _degradationSlideIndex++,
+                                            )
+                                          : null,
+                                      constraints: const BoxConstraints(),
+                                      padding: EdgeInsets.zero,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+
+                              Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.baseline,
-                                      textBaseline: TextBaseline.alphabetic,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Text(
-                                          _annualDegradationRate
-                                              .toStringAsFixed(2),
-                                          style: const TextStyle(
-                                            fontSize: 36,
-                                            fontWeight: FontWeight.w900,
-                                            color: Colors.black,
+                                        const Text(
+                                          MonitoringScreen.titlePanelEfficiency,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.black87,
                                           ),
                                         ),
-                                        const SizedBox(width: 4),
-                                        const Text(
-                                          MonitoringScreen.unitDegradation,
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
-                                            color: Colors.black54,
+                                        Text(
+                                          '${(persistentLatestEfficiency * 100).toInt()}${MonitoringScreen.unitPercent}',
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w900,
+                                            color: MonitoringScreen.darkGreen,
                                           ),
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 4),
-                                    const Text(
-                                      MonitoringScreen.titleDegradationRate,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.black54,
-                                        fontWeight: FontWeight.w500,
+                                    const SizedBox(height: 10),
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: TweenAnimationBuilder<double>(
+                                        duration: const Duration(
+                                          milliseconds: 600,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                        tween: Tween<double>(
+                                          begin: 0.0,
+                                          end: persistentLatestEfficiency.clamp(
+                                            0.0,
+                                            1.0,
+                                          ),
+                                        ),
+                                        builder: (context, value, child) {
+                                          return LinearProgressIndicator(
+                                            value: value,
+                                            minHeight: 10,
+                                            backgroundColor:
+                                                MonitoringScreen.controlBg,
+                                            valueColor:
+                                                const AlwaysStoppedAnimation<
+                                                  Color
+                                                >(MonitoringScreen.darkGreen),
+                                          );
+                                        },
                                       ),
                                     ),
                                   ],
                                 ),
-
-                                GestureDetector(
-                                  key: _questionMarkKey,
-                                  onTap: _openTooltip,
-                                  child: Container(
-                                    height: 32,
-                                    width: 32,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: _showTooltip
-                                            ? MonitoringScreen.darkGreen
-                                            : Colors.grey.shade400,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      Icons.help_outline_rounded,
-                                      size: 18,
-                                      color: _showTooltip
-                                          ? MonitoringScreen.darkGreen
-                                          : Colors.black87,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 24),
-
-                            // LINE GRAPH
-                            SizedBox(
-                              height: 180,
-                              child: CustomPaint(
-                                size: Size.infinite,
-                                painter: _DegradationLineChartPainter(
-                                  lineColor: MonitoringScreen.darkGreen,
-                                  points: activeSlidePoints,
-                                ),
                               ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: activeSlidePoints.map((p) {
-                                final bool isCurrentYear =
-                                    p.yearLabel ==
-                                    DateTime.now().year.toString();
-                                return Text(
-                                  p.yearLabel,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                    color: isCurrentYear
-                                        ? MonitoringScreen.darkGreen
-                                        : Colors.black54,
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                            const SizedBox(height: 20),
-
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: MonitoringScreen.controlBg,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.chevron_left_rounded,
-                                      size: 20,
-                                    ),
-                                    onPressed: _degradationSlideIndex > 0
-                                        ? () => setState(
-                                            () => _degradationSlideIndex--,
-                                          )
-                                        : null,
-                                    constraints: const BoxConstraints(),
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                  Text(
-                                    activeSlidePoints.isNotEmpty
-                                        ? '${activeSlidePoints.first.yearLabel} - ${activeSlidePoints.last.yearLabel}'
-                                        : '',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.black87,
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.chevron_right_rounded,
-                                      size: 20,
-                                    ),
-                                    onPressed:
-                                        _degradationSlideIndex <
-                                            _degradationSlides.length - 1
-                                        ? () => setState(
-                                            () => _degradationSlideIndex++,
-                                          )
-                                        : null,
-                                    constraints: const BoxConstraints(),
-                                    padding: EdgeInsets.zero,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      const Text(
-                                        MonitoringScreen.titlePanelEfficiency,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                      Text(
-                                        '${(persistentLatestEfficiency * 100).toInt()}${MonitoringScreen.unitPercent}',
-                                        style: const TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w900,
-                                          color: MonitoringScreen.darkGreen,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: LinearProgressIndicator(
-                                      value: persistentLatestEfficiency.clamp(
-                                        0.0,
-                                        1.0,
-                                      ),
-                                      minHeight: 10,
-                                      backgroundColor:
-                                          MonitoringScreen.controlBg,
-                                      valueColor:
-                                          const AlwaysStoppedAnimation<Color>(
-                                            MonitoringScreen.darkGreen,
-                                          ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      if (_showTooltip)
-                        Positioned(
-                          top: 60,
-                          right: 12,
-                          left: 12,
-                          child: AnimatedOpacity(
-                            duration: const Duration(
-                              milliseconds: MonitoringScreen.tooltipFadeAnimMs,
-                            ),
-                            opacity: _tooltipVisible ? 1.0 : 0.0,
-                            child: Stack(
-                              children: [
-                                Positioned(
-                                  right: 8,
-                                  top: 0,
-                                  child: ClipPath(
-                                    clipper: _TriangleClipper(),
-                                    child: Container(
-                                      width: 14,
-                                      height: 8,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  margin: const EdgeInsets.only(top: 7),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(16),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        blurRadius: 16,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: const [
-                                      Icon(
-                                        Icons.info_outline_rounded,
-                                        size: 18,
-                                        color: MonitoringScreen.darkGreen,
-                                      ),
-                                      SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          MonitoringScreen
-                                              .tooltipDiagnosticInfo,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            height: 1.4,
-                                            color: Colors.black87,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
+                            ],
                           ),
                         ),
-                    ],
+                        if (_showTooltip)
+                          Positioned(
+                            top: 60,
+                            right: 12,
+                            left: 12,
+                            child: AnimatedOpacity(
+                              duration: const Duration(
+                                milliseconds:
+                                    MonitoringScreen.tooltipFadeAnimMs,
+                              ),
+                              opacity: _tooltipVisible ? 1.0 : 0.0,
+                              child: Stack(
+                                children: [
+                                  Positioned(
+                                    right: 8,
+                                    top: 0,
+                                    child: ClipPath(
+                                      clipper: _TriangleClipper(),
+                                      child: Container(
+                                        width: 14,
+                                        height: 8,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    margin: const EdgeInsets.only(top: 7),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.12,
+                                          ),
+                                          blurRadius: 16,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: const [
+                                        Icon(
+                                          Icons.info_outline_rounded,
+                                          size: 18,
+                                          color: MonitoringScreen.darkGreen,
+                                        ),
+                                        SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            MonitoringScreen
+                                                .tooltipDiagnosticInfo,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              height: 1.4,
+                                              color: Colors.black87,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 32),
                 ]),

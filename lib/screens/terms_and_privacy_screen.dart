@@ -158,61 +158,91 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: pageBg,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: midGreen))
-          : ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                _buildTopHeader(context),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: _spacing16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: _spacing16),
-                      Text(
-                        '$_textLastUpdatedPrefix$_lastUpdated',
-                        style: const TextStyle(
-                          fontSize: _fontSizeSubtext,
-                          fontWeight: FontWeight.bold,
-                          color: textGrey,
-                        ),
-                      ),
-                      const SizedBox(height: _spacing12),
-                      if (_sections.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: _spacing32),
-                          child: Center(
-                            child: Text(
-                              _textNoTermsFound,
-                              style: TextStyle(color: textGrey),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: _isLoading
+            ? const Center(
+                key: ValueKey('loading'),
+                child: CircularProgressIndicator(color: midGreen),
+              )
+            : ListView(
+                key: const ValueKey('content'),
+                padding: EdgeInsets.zero,
+                children: [
+                  _buildTopHeader(context),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: _spacing16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: _spacing16),
+                        TweenAnimationBuilder<double>(
+                          duration: const Duration(milliseconds: 350),
+                          curve: Curves.easeOutCubic,
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, (1 - value) * 12),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            '$_textLastUpdatedPrefix$_lastUpdated',
+                            style: const TextStyle(
+                              fontSize: _fontSizeSubtext,
+                              fontWeight: FontWeight.bold,
+                              color: textGrey,
                             ),
                           ),
-                        )
-                      else
-                        ..._sections.map(
-                          (sec) => _SectionWidget(
-                            title: sec[_fieldTitle] ?? '',
-                            content: sec[_fieldContent] ?? '',
+                        ),
+                        const SizedBox(height: _spacing12),
+                        if (_sections.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: _spacing32),
+                            child: Center(
+                              child: Text(
+                                _textNoTermsFound,
+                                style: TextStyle(color: textGrey),
+                              ),
+                            ),
+                          )
+                        else
+                          ..._sections.asMap().entries.map(
+                            (entry) => _SectionWidget(
+                              title: entry.value[_fieldTitle] ?? '',
+                              content: entry.value[_fieldContent] ?? '',
+                              index: entry.key,
+                            ),
+                          ),
+                        const SizedBox(height: _spacing32),
+                        TweenAnimationBuilder<double>(
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeOutCubic,
+                          tween: Tween<double>(begin: 0.0, end: 1.0),
+                          builder: (context, value, child) {
+                            return Opacity(opacity: value, child: child);
+                          },
+                          child: Center(
+                            child: Text(
+                              _copyright,
+                              style: TextStyle(
+                                fontSize: _fontSizeSubtext,
+                                color: Colors.grey.shade500,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                           ),
                         ),
-                      const SizedBox(height: _spacing32),
-                      Center(
-                        child: Text(
-                          _copyright,
-                          style: TextStyle(
-                            fontSize: _fontSizeSubtext,
-                            color: Colors.grey.shade500,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: _spacing32),
-                    ],
+                        const SizedBox(height: _spacing32),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 
@@ -288,8 +318,13 @@ class _TermsAndPrivacyScreenState extends State<TermsAndPrivacyScreen> {
 class _SectionWidget extends StatelessWidget {
   final String title;
   final String content;
+  final int index;
 
-  const _SectionWidget({required this.title, required this.content});
+  const _SectionWidget({
+    required this.title,
+    required this.content,
+    this.index = 0,
+  });
 
   static const double _spacing4 = 4.0;
   static const double _spacing8 = 8.0;
@@ -305,49 +340,63 @@ class _SectionWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(
-            left: _spacing4,
-            top: _spacing18,
-            bottom: _spacing8,
+    return TweenAnimationBuilder<double>(
+      duration: Duration(milliseconds: 400 + (index * 80)),
+      curve: Curves.easeOutCubic,
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, (1 - value) * 16),
+            child: child,
           ),
-          child: Text(
-            title,
-            style: const TextStyle(
-              fontSize: _fontSizeSectionTitle,
-              fontWeight: FontWeight.bold,
+        );
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(
+              left: _spacing4,
+              top: _spacing18,
+              bottom: _spacing8,
             ),
-          ),
-        ),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(_cardRadius),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.grey.withValues(alpha: _shadowAlpha),
-                spreadRadius: _shadowSpread,
-                blurRadius: _shadowBlur,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(_spacing16),
             child: Text(
-              content,
+              title,
               style: const TextStyle(
-                fontSize: _fontSizeContent,
-                color: Colors.black87,
-                height: _lineHeightContent,
+                fontSize: _fontSizeSectionTitle,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
-        ),
-      ],
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(_cardRadius),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withValues(alpha: _shadowAlpha),
+                  spreadRadius: _shadowSpread,
+                  blurRadius: _shadowBlur,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(_spacing16),
+              child: Text(
+                content,
+                style: const TextStyle(
+                  fontSize: _fontSizeContent,
+                  color: Colors.black87,
+                  height: _lineHeightContent,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

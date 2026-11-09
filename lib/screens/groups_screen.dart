@@ -186,7 +186,10 @@ class GroupFirestoreService {
           })
           .where((g) {
             if (currentUid == null) return true;
-            return g.ownerUid == currentUid || g.panels.isNotEmpty;
+            return g.ownerUid == null ||
+                g.ownerUid == '' ||
+                g.ownerUid == currentUid ||
+                g.panels.isNotEmpty;
           })
           .toList();
 
@@ -206,6 +209,7 @@ class GroupFirestoreService {
   static Future<void> addGroup(String name, int order, String? ownerUid) async {
     final String groupId =
         '$_groupIdPrefix${DateTime.now().millisecondsSinceEpoch}';
+    final effectiveUid = ownerUid ?? FirebaseAuth.instance.currentUser?.uid;
 
     final batch = _db.batch();
 
@@ -215,15 +219,15 @@ class GroupFirestoreService {
           'group_id': groupId,
           'group_name': name,
           'group_order': order,
-          'owner_uid': ownerUid,
+          'owner_uid': effectiveUid,
         },
       },
     }, SetOptions(merge: true));
 
-    if (ownerUid != null && ownerUid.isNotEmpty) {
+    if (effectiveUid != null && effectiveUid.isNotEmpty) {
       final userGroupRef = _db
           .collection(_colUsers)
-          .doc(ownerUid)
+          .doc(effectiveUid)
           .collection(_colGroups)
           .doc(groupId);
 
@@ -231,6 +235,7 @@ class GroupFirestoreService {
         'group_id': groupId,
         'group_name': name,
         'group_order': order,
+        'owner_uid': effectiveUid,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
@@ -244,14 +249,22 @@ class GroupFirestoreService {
     String newName, {
     String? ownerUid,
   }) async {
+    final effectiveUid = ownerUid ?? FirebaseAuth.instance.currentUser?.uid;
     final batch = _db.batch();
 
-    batch.update(_statusDocRef, {'groups.$groupId.group_name': newName});
+    batch.set(_statusDocRef, {
+      'groups': {
+        groupId: {
+          'group_name': newName,
+          if (effectiveUid != null) 'owner_uid': effectiveUid,
+        },
+      },
+    }, SetOptions(merge: true));
 
-    if (ownerUid != null && ownerUid.isNotEmpty) {
+    if (effectiveUid != null && effectiveUid.isNotEmpty) {
       final userGroupRef = _db
           .collection(_colUsers)
-          .doc(ownerUid)
+          .doc(effectiveUid)
           .collection(_colGroups)
           .doc(groupId);
 
@@ -266,7 +279,11 @@ class GroupFirestoreService {
 
   /// Write: Rename Panel in system_status/current
   static Future<void> renamePanel(String panelId, String newName) async {
-    await _statusDocRef.update({'panels.$panelId.panel_name': newName});
+    await _statusDocRef.set({
+      'panels': {
+        panelId: {'panel_name': newName},
+      },
+    }, SetOptions(merge: true));
   }
 
   /// Write: Remove Panel permanently from system_status/current & release device ownership
@@ -277,9 +294,7 @@ class GroupFirestoreService {
       await _db.collection(_colDevices).doc(panelId).update({
         _fieldOwnerUid: '',
       });
-    } catch (_) {
-      // Ignored if device registry entry does not exist
-    }
+    } catch (_) {}
   }
 
   /// Write: Safe Delete Group and unassign member panels in system_status/current and users/{uid}/groups
@@ -288,6 +303,7 @@ class GroupFirestoreService {
     String groupName, {
     String? ownerUid,
   }) async {
+    final effectiveUid = ownerUid ?? FirebaseAuth.instance.currentUser?.uid;
     final docSnap = await _statusDocRef.get();
     final data = docSnap.data() as Map<String, dynamic>? ?? {};
     final panelsMap = data['panels'] as Map<String, dynamic>? ?? {};
@@ -308,10 +324,10 @@ class GroupFirestoreService {
     final batch = _db.batch();
     batch.update(_statusDocRef, updates);
 
-    if (ownerUid != null && ownerUid.isNotEmpty) {
+    if (effectiveUid != null && effectiveUid.isNotEmpty) {
       final userGroupRef = _db
           .collection(_colUsers)
-          .doc(ownerUid)
+          .doc(effectiveUid)
           .collection(_colGroups)
           .doc(groupId);
       batch.delete(userGroupRef);
@@ -326,18 +342,20 @@ class GroupFirestoreService {
     String? targetGroupId,
     String? targetGroupName,
   ) async {
-    await _statusDocRef.update({
-      'panels.$panelId.group': targetGroupId ?? targetGroupName,
-    });
+    await _statusDocRef.set({
+      'panels': {
+        panelId: {'group': targetGroupId ?? targetGroupName},
+      },
+    }, SetOptions(merge: true));
   }
 
   /// Write: Reorder Groups in system_status/current
   static Future<void> updateGroupOrder(List<PanelGroup> groups) async {
-    final Map<String, dynamic> updates = {};
+    final Map<String, dynamic> groupUpdates = {};
     for (int i = 0; i < groups.length; i++) {
-      updates['groups.${groups[i].id}.group_order'] = i;
+      groupUpdates[groups[i].id] = {'group_order': i};
     }
-    await _statusDocRef.update(updates);
+    await _statusDocRef.set({'groups': groupUpdates}, SetOptions(merge: true));
   }
 }
 
@@ -390,6 +408,25 @@ class _GroupsScreenState extends State<GroupsScreen> {
     super.dispose();
   }
 
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError
+            ? Colors.red.shade900
+            : const Color(0xFF092508),
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
   void _listenToUserDoc() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -432,11 +469,16 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
     final nextNum = maxNum + 1;
     final user = FirebaseAuth.instance.currentUser;
-    await GroupFirestoreService.addGroup(
-      '${GroupsScreen._defaultSitePrefix}$nextNum',
-      currentGroups.length,
-      user?.uid,
-    );
+    try {
+      await GroupFirestoreService.addGroup(
+        '${GroupsScreen._defaultSitePrefix}$nextNum',
+        currentGroups.length,
+        user?.uid,
+      );
+      _showSnackBar('Site added successfully!');
+    } catch (e) {
+      _showSnackBar('Failed to add site: $e', isError: true);
+    }
   }
 
   Future<void> _showRenameDialog(PanelGroup group) async {
@@ -504,12 +546,17 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
     if (!mounted) return;
 
-    if (newName != null && newName.isNotEmpty) {
-      await GroupFirestoreService.renameGroup(
-        group.id,
-        newName,
-        ownerUid: group.ownerUid,
-      );
+    if (newName != null && newName.isNotEmpty && newName != group.name) {
+      try {
+        await GroupFirestoreService.renameGroup(
+          group.id,
+          newName,
+          ownerUid: group.ownerUid,
+        );
+        _showSnackBar('Site renamed successfully!');
+      } catch (e) {
+        _showSnackBar('Failed to rename site: $e', isError: true);
+      }
     }
   }
 
@@ -578,8 +625,13 @@ class _GroupsScreenState extends State<GroupsScreen> {
 
     if (!mounted) return;
 
-    if (newName != null && newName.isNotEmpty) {
-      await GroupFirestoreService.renamePanel(panel.id, newName);
+    if (newName != null && newName.isNotEmpty && newName != panel.name) {
+      try {
+        await GroupFirestoreService.renamePanel(panel.id, newName);
+        _showSnackBar('Panel renamed successfully!');
+      } catch (e) {
+        _showSnackBar('Failed to rename panel: $e', isError: true);
+      }
     }
   }
 
@@ -623,7 +675,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
     if (!mounted) return;
 
     if (confirm == true) {
-      await GroupFirestoreService.deletePanel(panel.id);
+      try {
+        await GroupFirestoreService.deletePanel(panel.id);
+        _showSnackBar('Panel removed.');
+      } catch (e) {
+        _showSnackBar('Failed to remove panel: $e', isError: true);
+      }
     }
   }
 
@@ -704,11 +761,16 @@ class _GroupsScreenState extends State<GroupsScreen> {
     if (!mounted) return;
 
     if (confirm == true) {
-      await GroupFirestoreService.deleteGroup(
-        group.id,
-        group.name,
-        ownerUid: group.ownerUid,
-      );
+      try {
+        await GroupFirestoreService.deleteGroup(
+          group.id,
+          group.name,
+          ownerUid: group.ownerUid,
+        );
+        _showSnackBar('Site deleted.');
+      } catch (e) {
+        _showSnackBar('Failed to delete site: $e', isError: true);
+      }
     }
   }
 
@@ -831,241 +893,278 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: GroupsScreen.cardBorderColor),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 18,
-                            offset: const Offset(0, 8),
+                    child: TweenAnimationBuilder<double>(
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeOutCubic,
+                      tween: Tween<double>(begin: 0.0, end: 1.0),
+                      builder: (context, value, child) {
+                        return Opacity(
+                          opacity: value,
+                          child: Transform.translate(
+                            offset: Offset(0, (1 - value) * 16),
+                            child: child,
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'SITES',
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 1.5,
-                                ),
-                              ),
-                              GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _isEditing = !_isEditing;
-                                  });
-                                },
-                                child: Text(
-                                  _isEditing ? 'Done' : 'Edit',
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: GroupsScreen.cardBorderColor,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.04),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'SITES',
                                   style: TextStyle(
-                                    color: _isEditing
-                                        ? GroupsScreen.primaryGreen
-                                        : GroupsScreen.textMuted,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _isEditing = !_isEditing;
+                                    });
+                                  },
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 200),
+                                    transitionBuilder: (child, animation) =>
+                                        FadeTransition(
+                                          opacity: animation,
+                                          child: ScaleTransition(
+                                            scale: animation,
+                                            child: child,
+                                          ),
+                                        ),
+                                    child: Text(
+                                      _isEditing ? 'Done' : 'Edit',
+                                      key: ValueKey<bool>(_isEditing),
+                                      style: TextStyle(
+                                        color: _isEditing
+                                            ? GroupsScreen.primaryGreen
+                                            : GroupsScreen.textMuted,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            if (groups.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16.0),
+                                child: Text(
+                                  'No sites created yet.',
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 13,
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
 
-                          if (groups.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 16.0),
-                              child: Text(
-                                'No sites created yet.',
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 13,
-                                ),
-                              ),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: groups.length,
+                              itemBuilder: (context, groupIndex) {
+                                return _buildGroupRow(
+                                  groups[groupIndex],
+                                  groupIndex,
+                                  groups,
+                                );
+                              },
                             ),
 
-                          ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: groups.length,
-                            itemBuilder: (context, groupIndex) {
-                              return _buildGroupRow(
-                                groups[groupIndex],
-                                groupIndex,
-                                groups,
-                              );
-                            },
-                          ),
+                            const SizedBox(height: 20),
+                            const Divider(
+                              color: GroupsScreen.dividerColor,
+                              height: 1,
+                              thickness: 1,
+                            ),
+                            const SizedBox(height: 20),
 
-                          const SizedBox(height: 20),
-                          const Divider(
-                            color: GroupsScreen.dividerColor,
-                            height: 1,
-                            thickness: 1,
-                          ),
-                          const SizedBox(height: 20),
-
-                          DragTarget<Object>(
-                            onWillAcceptWithDetails: (details) {
-                              if (details.data is GroupDragData &&
-                                  !_isHoveringDeleteZone) {
-                                setState(() => _isHoveringDeleteZone = true);
-                              }
-                              return true;
-                            },
-                            onLeave: (_) {
-                              if (_isHoveringDeleteZone) {
-                                setState(() => _isHoveringDeleteZone = false);
-                              }
-                            },
-                            onAcceptWithDetails: (details) async {
-                              if (details.data is GroupDragData) {
-                                setState(() => _isHoveringDeleteZone = false);
-                                final groupData = details.data as GroupDragData;
-                                _handleGroupDelete(groupData.group);
-                              } else if (details.data is PanelDragData) {
-                                final panelData = details.data as PanelDragData;
-                                await GroupFirestoreService.movePanelToGroup(
-                                  panelData.item.id,
-                                  null,
-                                  null,
-                                );
-                              }
-                            },
-                            builder:
-                                (
-                                  context,
-                                  candidateGroupData,
-                                  rejectedGroupData,
-                                ) {
-                                  return AnimatedContainer(
-                                    duration: const Duration(milliseconds: 150),
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
+                            DragTarget<Object>(
+                              onWillAcceptWithDetails: (details) {
+                                if (details.data is GroupDragData &&
+                                    !_isHoveringDeleteZone) {
+                                  setState(() => _isHoveringDeleteZone = true);
+                                }
+                                return true;
+                              },
+                              onLeave: (_) {
+                                if (_isHoveringDeleteZone) {
+                                  setState(() => _isHoveringDeleteZone = false);
+                                }
+                              },
+                              onAcceptWithDetails: (details) async {
+                                if (details.data is GroupDragData) {
+                                  setState(() => _isHoveringDeleteZone = false);
+                                  final groupData =
+                                      details.data as GroupDragData;
+                                  _handleGroupDelete(groupData.group);
+                                } else if (details.data is PanelDragData) {
+                                  final panelData =
+                                      details.data as PanelDragData;
+                                  await GroupFirestoreService.movePanelToGroup(
+                                    panelData.item.id,
+                                    null,
+                                    null,
+                                  );
+                                }
+                              },
+                              builder: (context, candidateGroupData, rejectedGroupData) {
+                                return AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeInOut,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _isHoveringDeleteZone
+                                        ? Colors.red.withValues(alpha: 0.08)
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
                                       color: _isHoveringDeleteZone
-                                          ? Colors.red.withValues(alpha: 0.08)
+                                          ? Colors.redAccent
                                           : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: _isHoveringDeleteZone
-                                          ? Border.all(
-                                              color: Colors.redAccent,
-                                              width: 1.5,
-                                            )
-                                          : null,
+                                      width: 1.5,
                                     ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Text(
-                                              'UNASSIGNED',
-                                              style: TextStyle(
-                                                color: Colors.black,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w900,
-                                                letterSpacing: 1.5,
-                                              ),
-                                            ),
-                                            if (_isHoveringDeleteZone)
-                                              const Padding(
-                                                padding: EdgeInsets.only(
-                                                  left: 8.0,
-                                                ),
-                                                child: Text(
-                                                  '— Drop site here to delete',
-                                                  style: TextStyle(
-                                                    color: Colors.red,
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 12),
-
-                                        if (ungroupedPanels.isEmpty)
-                                          const Padding(
-                                            padding: EdgeInsets.symmetric(
-                                              vertical: 8.0,
-                                            ),
-                                            child: Text(
-                                              'All panels are assigned to a site.',
-                                              style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 12,
-                                              ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            'UNASSIGNED',
+                                            style: TextStyle(
+                                              color: Colors.black,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: 1.5,
                                             ),
                                           ),
+                                          AnimatedSwitcher(
+                                            duration: const Duration(
+                                              milliseconds: 200,
+                                            ),
+                                            child: _isHoveringDeleteZone
+                                                ? const Padding(
+                                                    key: ValueKey(
+                                                      'hover_delete_text',
+                                                    ),
+                                                    padding: EdgeInsets.only(
+                                                      left: 8.0,
+                                                    ),
+                                                    child: Text(
+                                                      '— Drop site here to delete',
+                                                      style: TextStyle(
+                                                        color: Colors.red,
+                                                        fontSize: 10,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  )
+                                                : const SizedBox.shrink(
+                                                    key: ValueKey('empty_text'),
+                                                  ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
 
-                                        ListView.builder(
-                                          shrinkWrap: true,
-                                          physics:
-                                              const NeverScrollableScrollPhysics(),
-                                          itemCount: ungroupedPanels.length,
-                                          itemBuilder: (context, index) {
-                                            final panel =
-                                                ungroupedPanels[index];
-                                            return _buildMemberPanelTile(
-                                              panel: panel,
-                                              index: index,
-                                              sourceGroupId: null,
-                                              isIndented: false,
-                                            );
-                                          },
+                                      if (ungroupedPanels.isEmpty)
+                                        const Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: 8.0,
+                                          ),
+                                          child: Text(
+                                            'All panels are assigned to a site.',
+                                            style: TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 12,
+                                            ),
+                                          ),
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                          ),
 
-                          const SizedBox(height: 24),
+                                      ListView.builder(
+                                        shrinkWrap: true,
+                                        physics:
+                                            const NeverScrollableScrollPhysics(),
+                                        itemCount: ungroupedPanels.length,
+                                        itemBuilder: (context, index) {
+                                          final panel = ungroupedPanels[index];
+                                          return _buildMemberPanelTile(
+                                            panel: panel,
+                                            index: index,
+                                            sourceGroupId: null,
+                                            isIndented: false,
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
 
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: () => _addNewGroup(groups),
-                              icon: const Icon(
-                                CupertinoIcons.add,
-                                size: 16,
-                                color: GroupsScreen.primaryGreen,
-                              ),
-                              label: const Text(
-                                'add a site',
-                                style: TextStyle(
+                            const SizedBox(height: 24),
+
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _addNewGroup(groups),
+                                icon: const Icon(
+                                  CupertinoIcons.add,
+                                  size: 16,
                                   color: GroupsScreen.primaryGreen,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
                                 ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: GroupsScreen.lightGreenBg,
-                                  width: 1.5,
+                                label: const Text(
+                                  'add a site',
+                                  style: TextStyle(
+                                    color: GroupsScreen.primaryGreen,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
-                                backgroundColor: GroupsScreen.bgLight,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(
+                                    color: GroupsScreen.lightGreenBg,
+                                    width: 1.5,
+                                  ),
+                                  backgroundColor: GroupsScreen.bgLight,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1111,163 +1210,185 @@ class _GroupsScreenState extends State<GroupsScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            InkWell(
-              onTap: () {
-                setState(() {
-                  _expansionMap[group.id] = !group.isExpanded;
-                });
-              },
-              borderRadius: BorderRadius.circular(8),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10.0),
-                child: Row(
-                  children: [
-                    if (_isEditing) ...[
-                      InkWell(
-                        onTap: () => _showRenameDialog(group),
-                        borderRadius: BorderRadius.circular(6),
-                        child: const Padding(
-                          padding: EdgeInsets.all(4.0),
-                          child: Icon(
-                            CupertinoIcons.pencil,
-                            color: GroupsScreen.editBlue,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () => _handleGroupDelete(group),
-                        borderRadius: BorderRadius.circular(6),
-                        child: const Padding(
-                          padding: EdgeInsets.all(4.0),
-                          child: Icon(
-                            CupertinoIcons.trash,
-                            color: Colors.redAccent,
-                            size: 18,
-                          ),
-                        ),
-                      ),
-                    ] else ...[
-                      Draggable<GroupDragData>(
-                        data: GroupDragData(
-                          group: group,
-                          sourceIndex: groupIndex,
-                        ),
-                        onDragStarted: () {
-                          setState(() {
-                            _collapseAllGroups();
-                          });
-                        },
-                        feedback: Material(
-                          color: Colors.transparent,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: GroupsScreen.textDark,
-                                width: 1.5,
-                              ),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 10,
-                                ),
-                              ],
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  CupertinoIcons.bars,
-                                  color: GroupsScreen.textDark,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6.0),
+              child: Row(
+                children: [
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(scale: animation, child: child),
+                    ),
+                    child: _isEditing
+                        ? Row(
+                            key: ValueKey('editing_group_${group.id}'),
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                constraints: const BoxConstraints(),
+                                padding: const EdgeInsets.all(6),
+                                icon: const Icon(
+                                  CupertinoIcons.pencil,
+                                  color: GroupsScreen.editBlue,
                                   size: 18,
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  group.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
+                                onPressed: () => _showRenameDialog(group),
+                              ),
+                              const SizedBox(width: 4),
+                              IconButton(
+                                constraints: const BoxConstraints(),
+                                padding: const EdgeInsets.all(6),
+                                icon: const Icon(
+                                  CupertinoIcons.trash,
+                                  color: Colors.redAccent,
+                                  size: 18,
                                 ),
-                              ],
+                                onPressed: () => _handleGroupDelete(group),
+                              ),
+                            ],
+                          )
+                        : Draggable<GroupDragData>(
+                            key: ValueKey('draggable_group_${group.id}'),
+                            data: GroupDragData(
+                              group: group,
+                              sourceIndex: groupIndex,
+                            ),
+                            onDragStarted: () {
+                              setState(() {
+                                _collapseAllGroups();
+                              });
+                            },
+                            feedback: Material(
+                              color: Colors.transparent,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: GroupsScreen.textDark,
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Colors.black26,
+                                      blurRadius: 10,
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      CupertinoIcons.bars,
+                                      color: GroupsScreen.textDark,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      group.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            childWhenDragging: const Icon(
+                              CupertinoIcons.bars,
+                              color: GroupsScreen.cardBorderColor,
+                              size: 18,
+                            ),
+                            child: const Icon(
+                              CupertinoIcons.bars,
+                              color: GroupsScreen.dragHandleColor,
+                              size: 18,
                             ),
                           ),
-                        ),
-                        childWhenDragging: const Icon(
-                          CupertinoIcons.bars,
-                          color: GroupsScreen.cardBorderColor,
-                          size: 18,
-                        ),
-                        child: const Icon(
-                          CupertinoIcons.bars,
-                          color: GroupsScreen.dragHandleColor,
-                          size: 18,
-                        ),
-                      ),
-                    ],
-                    const SizedBox(width: 12),
+                  ),
+                  const SizedBox(width: 8),
 
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Text(
-                            group.name,
-                            style: const TextStyle(
-                              color: GroupsScreen.textDark,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.3,
+                  Expanded(
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _expansionMap[group.id] = !group.isExpanded;
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Row(
+                                children: [
+                                  Text(
+                                    group.name,
+                                    style: const TextStyle(
+                                      color: GroupsScreen.textDark,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '•  $activePanels of ${group.panels.length} active',
+                                    style: const TextStyle(
+                                      color: GroupsScreen.primaryGreen,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '•  $activePanels of ${group.panels.length} active',
-                            style: const TextStyle(
-                              color: GroupsScreen.primaryGreen,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                            AnimatedRotation(
+                              turns: group.isExpanded ? 0.5 : 0,
+                              duration: const Duration(milliseconds: 200),
+                              curve: Curves.easeInOut,
+                              child: const Icon(
+                                CupertinoIcons.chevron_down,
+                                color: GroupsScreen.textMuted,
+                                size: 16,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-
-                    AnimatedRotation(
-                      turns: group.isExpanded ? 0.5 : 0,
-                      duration: const Duration(milliseconds: 200),
-                      child: const Icon(
-                        CupertinoIcons.chevron_down,
-                        color: GroupsScreen.textMuted,
-                        size: 16,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
 
-            if (group.isExpanded)
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: group.panels.length,
-                itemBuilder: (context, panelIndex) {
-                  final panel = group.panels[panelIndex];
-                  return _buildMemberPanelTile(
-                    panel: panel,
-                    index: panelIndex,
-                    sourceGroupId: group.id,
-                    isIndented: true,
-                  );
-                },
-              ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOutCubic,
+              child: group.isExpanded
+                  ? ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: group.panels.length,
+                      itemBuilder: (context, panelIndex) {
+                        final panel = group.panels[panelIndex];
+                        return _buildMemberPanelTile(
+                          panel: panel,
+                          index: panelIndex,
+                          sourceGroupId: group.id,
+                          isIndented: true,
+                        );
+                      },
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         );
       },
@@ -1288,98 +1409,112 @@ class _GroupsScreenState extends State<GroupsScreen> {
       ),
       child: Row(
         children: [
-          if (_isEditing) ...[
-            InkWell(
-              onTap: () => _showRenamePanelDialog(panel),
-              borderRadius: BorderRadius.circular(6),
-              child: const Padding(
-                padding: EdgeInsets.all(4.0),
-                child: Icon(
-                  CupertinoIcons.pencil,
-                  color: GroupsScreen.editBlue,
-                  size: 16,
-                ),
-              ),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            transitionBuilder: (child, animation) => FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(scale: animation, child: child),
             ),
-            const SizedBox(width: 6),
-            InkWell(
-              onTap: () => _handlePanelDelete(panel),
-              borderRadius: BorderRadius.circular(6),
-              child: const Padding(
-                padding: EdgeInsets.all(4.0),
-                child: Icon(
-                  CupertinoIcons.trash,
-                  color: Colors.redAccent,
-                  size: 16,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ] else ...[
-            Draggable<PanelDragData>(
-              data: PanelDragData(
-                item: panel,
-                sourceGroupId: sourceGroupId,
-                sourceIndex: index,
-              ),
-              onDragStarted: () {
-                setState(() {
-                  _collapseAllGroups();
-                });
-              },
-              feedback: Material(
-                color: Colors.transparent,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: GroupsScreen.primaryGreen,
-                      width: 1.5,
-                    ),
-                    boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 8),
-                    ],
-                  ),
-                  child: Row(
+            child: _isEditing
+                ? Row(
+                    key: ValueKey('editing_panel_${panel.id}'),
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        CupertinoIcons.line_horizontal_3,
-                        color: GroupsScreen.primaryGreen,
-                        size: 16,
+                      IconButton(
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(4),
+                        icon: const Icon(
+                          CupertinoIcons.pencil,
+                          color: GroupsScreen.editBlue,
+                          size: 16,
+                        ),
+                        onPressed: () => _showRenamePanelDialog(panel),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        panel.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
+                      const SizedBox(width: 4),
+                      IconButton(
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(4),
+                        icon: const Icon(
+                          CupertinoIcons.trash,
+                          color: Colors.redAccent,
+                          size: 16,
+                        ),
+                        onPressed: () => _handlePanelDelete(panel),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                  )
+                : Row(
+                    key: ValueKey('draggable_panel_${panel.id}'),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Draggable<PanelDragData>(
+                        data: PanelDragData(
+                          item: panel,
+                          sourceGroupId: sourceGroupId,
+                          sourceIndex: index,
+                        ),
+                        onDragStarted: () {
+                          setState(() {
+                            _collapseAllGroups();
+                          });
+                        },
+                        feedback: Material(
+                          color: Colors.transparent,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: GroupsScreen.primaryGreen,
+                                width: 1.5,
+                              ),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black26, blurRadius: 8),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  CupertinoIcons.line_horizontal_3,
+                                  color: GroupsScreen.primaryGreen,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  panel.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        childWhenDragging: const Icon(
+                          CupertinoIcons.line_horizontal_3,
+                          color: GroupsScreen.cardBorderColor,
+                          size: 16,
+                        ),
+                        child: const Icon(
+                          CupertinoIcons.line_horizontal_3,
+                          color: GroupsScreen.panelDragIconColor,
+                          size: 16,
                         ),
                       ),
+                      const SizedBox(width: 10),
                     ],
                   ),
-                ),
-              ),
-              childWhenDragging: const Icon(
-                CupertinoIcons.line_horizontal_3,
-                color: GroupsScreen.cardBorderColor,
-                size: 16,
-              ),
-              child: const Icon(
-                CupertinoIcons.line_horizontal_3,
-                color: GroupsScreen.panelDragIconColor,
-                size: 16,
-              ),
-            ),
-            const SizedBox(width: 10),
-          ],
+          ),
 
-          Container(
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
             width: 6,
             height: 6,
             decoration: BoxDecoration(

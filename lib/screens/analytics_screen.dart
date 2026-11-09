@@ -2,6 +2,8 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'output_overview_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,6 +26,7 @@ class SiteModel {
       groupName:
           json['group_name'] as String? ??
           json['name'] as String? ??
+          json['aggregator_name'] as String? ??
           'Unnamed Site',
       groupOrder: (json['group_order'] as num?)?.toInt() ?? 0,
     );
@@ -41,14 +44,32 @@ class OverviewGroupItem {
     required this.kwh,
   });
 
-  factory OverviewGroupItem.fromFirestore(Map<String, dynamic> json) {
+  factory OverviewGroupItem.fromFirestore(
+    Map<String, dynamic> json, [
+    List<SiteModel>? sites,
+  ]) {
+    final gId =
+        json['group_id'] as String? ?? json['aggregator_id'] as String? ?? '';
+    var gName =
+        json['group_name'] as String? ??
+        json['name'] as String? ??
+        json['aggregator_name'] as String?;
+
+    if ((gName == null || gName.isEmpty || gName == 'Unnamed Site') &&
+        sites != null) {
+      final match = sites.firstWhere(
+        (s) => s.groupId == gId,
+        orElse: () => SiteModel(groupId: gId, groupName: gId, groupOrder: 0),
+      );
+      gName = match.groupName;
+    }
+
+    final rawKwh = (json['kwh'] as num?)?.toDouble() ?? 0.0;
+
     return OverviewGroupItem(
-      groupId: json['group_id'] as String? ?? '',
-      groupName:
-          json['group_name'] as String? ??
-          json['name'] as String? ??
-          'Unnamed Site',
-      kwh: (json['kwh'] as num?)?.toDouble() ?? 0.0,
+      groupId: gId,
+      groupName: gName ?? (gId.isNotEmpty ? gId : 'Unnamed Site'),
+      kwh: max(0.0, rawKwh),
     );
   }
 }
@@ -72,23 +93,27 @@ class AnalyticsDocModel {
   ) {
     final barsMap = (json['bars'] as Map<String, dynamic>?) ?? {};
     final parsedBars = barsMap.map((k, v) {
+      double rawVal = 0.0;
       if (v is Map) {
-        return MapEntry(
-          k,
-          (v['val'] as num?)?.toDouble() ??
-              (v['raw_kwh'] as num?)?.toDouble() ??
-              0.0,
-        );
+        rawVal =
+            (v['val'] as num?)?.toDouble() ??
+            (v['raw_kwh'] as num?)?.toDouble() ??
+            0.0;
+      } else if (v is num) {
+        rawVal = v.toDouble();
       }
-      return MapEntry(k, (v as num).toDouble());
+      return MapEntry(k, max(0.0, rawVal));
     });
-    final total = (json['totalKwh'] as num?)?.toDouble() ?? 0.0;
+    final rawTotal =
+        (json['totalKwh'] as num?)?.toDouble() ??
+        (json['total_kwh'] as num?)?.toDouble() ??
+        0.0;
     final title = json['title'] as String? ?? docId;
 
     return AnalyticsDocModel(
       id: docId,
       title: title,
-      totalKwh: total,
+      totalKwh: max(0.0, rawTotal),
       bars: parsedBars,
     );
   }
@@ -170,7 +195,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<OverviewGroupItem> _weeklyOverview = [];
   List<OverviewGroupItem> _annualOverview = [];
 
-  // Dynamic system capacity and electricity tariff rate fetched from backend
   double _totalSystemKw = 0.0;
   double _tariffRate = 12.0;
 
@@ -179,6 +203,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<SiteModel> _sites = [
     const SiteModel(groupId: 'all', groupName: 'All Sites', groupOrder: 0),
   ];
+  Map<String, List<String>> _sitePanelIds = {};
+  List<String> _allPanelIds = [];
   Map<String, double> _siteOutputs = {};
   late SiteModel _selectedSite;
   bool _isLoadingSites = true;
@@ -200,10 +226,33 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
 
     _loadFirestoreSites();
-    _loadFirestoreAnalytics();
   }
 
-  /// Fetches sites & system status dynamically from Firestore system_status/current
+  /// Maps UI daily labels to server bucket string variations safely (clamped >= 0)
+  static double _getBarValue(Map<String, double> bars, String bucketLabel) {
+    double val = 0.0;
+    if (bars.containsKey(bucketLabel)) {
+      val = bars[bucketLabel] ?? 0.0;
+    } else {
+      final aliasMap = {
+        '6AM': ['06:00', '6:00', '6AM', '06:00:00'],
+        '9AM': ['09:00', '9:00', '9AM', '09:00:00'],
+        '12NN': ['12:00', '12PM', '12NN', '12:00:00'],
+        '3PM': ['15:00', '3PM', '15:00:00'],
+        '6PM': ['18:00', '6PM', '18:00:00'],
+      };
+
+      final aliases = aliasMap[bucketLabel] ?? [bucketLabel];
+      for (final alias in aliases) {
+        if (bars.containsKey(alias)) {
+          val = bars[alias] ?? 0.0;
+          break;
+        }
+      }
+    }
+    return max(0.0, val);
+  }
+
   Future<void> _loadFirestoreSites() async {
     try {
       final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
@@ -214,6 +263,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           .get();
 
       List<SiteModel> fetchedSites = [];
+      Map<String, List<String>> fetchedSitePanelIds = {};
+      List<String> fetchedAllPanelIds = ['panel_01'];
       Map<String, double> calculatedOutputs = {};
 
       List<OverviewGroupItem> fetchedDailyOverview = [];
@@ -223,17 +274,57 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       double dynamicSystemKw = 0.0;
       double dynamicTariff = 12.0;
 
+      if (currentUid != null && currentUid.isNotEmpty) {
+        try {
+          final aggsSnap = await FirebaseFirestore.instance
+              .collection('aggregators')
+              .where('owner_uid', isEqualTo: currentUid)
+              .get();
+
+          for (int i = 0; i < aggsSnap.docs.length; i++) {
+            final doc = aggsSnap.docs[i];
+            final data = doc.data();
+            final rawName = data['aggregator_name'] as String?;
+            final siteName =
+                (rawName != null &&
+                    rawName.trim().isNotEmpty &&
+                    rawName != 'Orangepi Device')
+                ? rawName
+                : 'Site ${i + 1}';
+
+            final detectedPanels =
+                (data['detected_panels'] as List<dynamic>?)
+                    ?.map((e) => e.toString())
+                    .toList() ??
+                [];
+
+            fetchedSites.add(
+              SiteModel(groupId: doc.id, groupName: siteName, groupOrder: i),
+            );
+            fetchedSitePanelIds[doc.id] = detectedPanels;
+            fetchedAllPanelIds.addAll(detectedPanels);
+          }
+        } catch (e) {
+          debugPrint('Error fetching aggregators for analytics: $e');
+        }
+      }
+
       if (docSnap.exists && docSnap.data() != null) {
         final data = docSnap.data()!;
         final groupsMap = data['groups'] as Map<String, dynamic>? ?? {};
         final panelsMap = data['panels'] as Map<String, dynamic>? ?? {};
 
-        // Extract dynamic tariff rate and rated system capacity from server.py document
         if (data.containsKey('tariff_rate_per_kwh')) {
-          dynamicTariff = (data['tariff_rate_per_kwh'] as num).toDouble();
+          dynamicTariff = max(
+            0.0,
+            (data['tariff_rate_per_kwh'] as num).toDouble(),
+          );
         }
         if (data.containsKey('total_system_kw')) {
-          dynamicSystemKw = (data['total_system_kw'] as num).toDouble();
+          dynamicSystemKw = max(
+            0.0,
+            (data['total_system_kw'] as num).toDouble(),
+          );
         }
 
         final overviewMap =
@@ -245,24 +336,36 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         fetchedDailyOverview = rawDaily
             .where((item) => item is Map<String, dynamic>)
             .map(
-              (item) =>
-                  OverviewGroupItem.fromFirestore(item as Map<String, dynamic>),
+              (item) => OverviewGroupItem.fromFirestore(
+                item as Map<String, dynamic>,
+                fetchedSites,
+              ),
             )
             .toList();
         fetchedWeeklyOverview = rawWeekly
             .where((item) => item is Map<String, dynamic>)
             .map(
-              (item) =>
-                  OverviewGroupItem.fromFirestore(item as Map<String, dynamic>),
+              (item) => OverviewGroupItem.fromFirestore(
+                item as Map<String, dynamic>,
+                fetchedSites,
+              ),
             )
             .toList();
         fetchedAnnualOverview = rawAnnual
             .where((item) => item is Map<String, dynamic>)
             .map(
-              (item) =>
-                  OverviewGroupItem.fromFirestore(item as Map<String, dynamic>),
+              (item) => OverviewGroupItem.fromFirestore(
+                item as Map<String, dynamic>,
+                fetchedSites,
+              ),
             )
             .toList();
+
+        panelsMap.forEach((pId, pData) {
+          if (!fetchedAllPanelIds.contains(pId)) {
+            fetchedAllPanelIds.add(pId.toString());
+          }
+        });
 
         groupsMap.forEach((gId, gData) {
           if (gData is Map<String, dynamic>) {
@@ -280,13 +383,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   if (sensorData != null &&
                       sensorData.containsKey('output_power_w')) {
                     siteKw +=
-                        (sensorData['output_power_w'] as num).toDouble() /
+                        max(
+                          0.0,
+                          (sensorData['output_power_w'] as num).toDouble(),
+                        ) /
                         1000.0;
                   }
                 }
               }
             });
-            calculatedOutputs[gId] = siteKw;
+            calculatedOutputs[gId] = max(0.0, siteKw);
 
             final hasMemberPanel = panelsMap.values.any((p) {
               if (p is Map<String, dynamic>) {
@@ -298,9 +404,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               return false;
             });
 
-            if (groupOwner == currentUid ||
-                hasMemberPanel ||
-                currentUid == null) {
+            if (!fetchedSites.any((s) => s.groupId == gId) &&
+                (groupOwner == currentUid ||
+                    hasMemberPanel ||
+                    currentUid == null)) {
               fetchedSites.add(SiteModel.fromFirestore(gData, gId));
             }
           }
@@ -319,6 +426,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           ...fetchedSites,
         ];
 
+        _sitePanelIds = fetchedSitePanelIds;
+        _allPanelIds = fetchedAllPanelIds.toSet().toList();
         _tariffRate = dynamicTariff;
         if (dynamicSystemKw > 0) {
           _totalSystemKw = dynamicSystemKw;
@@ -339,29 +448,115 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
         _isLoadingSites = false;
       });
+
+      // Chain analytics load after sites & panel IDs are completely resolved
+      _loadFirestoreAnalytics();
     } catch (e) {
       debugPrint('Error fetching Firestore sites: $e');
       setState(() => _isLoadingSites = false);
+      _loadFirestoreAnalytics();
     }
   }
 
-  /// Fetches analytics documents targeting user-specific or group-specific collections
+  /// Multi-target query that collects and merges panel and aggregator subcollections
+  Future<List<AnalyticsDocModel>> _fetchAnalyticsForSubcollection(
+    String subcollection,
+  ) async {
+    List<String> candidateTargets = [];
+
+    if (_selectedSite.groupId == 'all') {
+      final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
+      if (currentUid != null && currentUid.isNotEmpty) {
+        candidateTargets.add('user_$currentUid');
+      }
+      candidateTargets.addAll(_allPanelIds);
+      for (final site in _sites) {
+        if (site.groupId != 'all') {
+          candidateTargets.add(site.groupId);
+        }
+      }
+      candidateTargets.add('solar_system_01');
+      candidateTargets.add('panel_01');
+    } else {
+      candidateTargets.add(_selectedSite.groupId);
+      final panels = _sitePanelIds[_selectedSite.groupId] ?? [];
+      candidateTargets.addAll(panels);
+      candidateTargets.add('solar_system_01');
+      candidateTargets.add('panel_01');
+    }
+
+    candidateTargets = candidateTargets.toSet().toList();
+    List<AnalyticsDocModel> allFetched = [];
+
+    for (final targetId in candidateTargets) {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('analytics')
+            .doc(targetId)
+            .collection(subcollection)
+            .get();
+
+        if (snap.docs.isNotEmpty) {
+          final docs = snap.docs
+              .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
+              .toList();
+          allFetched.addAll(docs);
+        }
+      } catch (e) {
+        debugPrint('Error fetching analytics for $targetId/$subcollection: $e');
+      }
+    }
+
+    if (allFetched.isEmpty && _selectedSite.groupId != 'all') {
+      for (final pId in _allPanelIds) {
+        try {
+          final snap = await FirebaseFirestore.instance
+              .collection('analytics')
+              .doc(pId)
+              .collection(subcollection)
+              .get();
+          if (snap.docs.isNotEmpty) {
+            allFetched.addAll(
+              snap.docs.map(
+                (doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id),
+              ),
+            );
+          }
+        } catch (_) {}
+      }
+    }
+
+    // Merge multiple documents sharing the same date/bucket ID safely
+    Map<String, AnalyticsDocModel> mergedMap = {};
+    for (final doc in allFetched) {
+      if (!mergedMap.containsKey(doc.id)) {
+        mergedMap[doc.id] = doc;
+      } else {
+        final existing = mergedMap[doc.id]!;
+        final mergedBars = Map<String, double>.from(existing.bars);
+        doc.bars.forEach((k, v) {
+          mergedBars[k] = max(0.0, (mergedBars[k] ?? 0.0) + v);
+        });
+        mergedMap[doc.id] = AnalyticsDocModel(
+          id: doc.id,
+          title: existing.title,
+          totalKwh: max(0.0, existing.totalKwh + doc.totalKwh),
+          bars: mergedBars,
+        );
+      }
+    }
+
+    final mergedList = mergedMap.values.toList();
+    mergedList.sort((a, b) => a.id.compareTo(b.id));
+    return mergedList;
+  }
+
   Future<void> _loadFirestoreAnalytics() async {
     setState(() => _isLoadingReadings = true);
 
     try {
       final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
 
-      String targetId;
-      if (_selectedSite.groupId == 'all') {
-        targetId = (currentUid != null && currentUid.isNotEmpty)
-            ? 'user_$currentUid'
-            : 'solar_system_01';
-      } else {
-        targetId = _selectedSite.groupId;
-      }
-
-      // Calculate total system capacity dynamically if not present
       try {
         final statusDoc = await FirebaseFirestore.instance
             .collection('system_status')
@@ -379,7 +574,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 if (currentUid == null || pOwner == currentUid) {
                   final meta = pData['metadata'] as Map<String, dynamic>?;
                   if (meta != null && meta.containsKey('rated_power_w')) {
-                    kwSum += (meta['rated_power_w'] as num).toDouble() / 1000.0;
+                    kwSum +=
+                        max(0.0, (meta['rated_power_w'] as num).toDouble()) /
+                        1000.0;
                   }
                 }
               }
@@ -391,65 +588,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         debugPrint('Error fetching system capacity: $e');
       }
 
-      // Fetch Daily Analytics Summaries
-      var dailySnapshot = await FirebaseFirestore.instance
-          .collection('analytics')
-          .doc(targetId)
-          .collection('daily')
-          .get();
-
-      if (dailySnapshot.docs.isEmpty && targetId != 'solar_system_01') {
-        dailySnapshot = await FirebaseFirestore.instance
-            .collection('analytics')
-            .doc('solar_system_01')
-            .collection('daily')
-            .get();
-      }
-
-      final fetchedDaily = dailySnapshot.docs
-          .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
-          .toList();
-      fetchedDaily.sort((a, b) => a.id.compareTo(b.id));
-
-      // Fetch Weekly Analytics Summaries
-      var weeklySnapshot = await FirebaseFirestore.instance
-          .collection('analytics')
-          .doc(targetId)
-          .collection('weekly')
-          .get();
-
-      if (weeklySnapshot.docs.isEmpty && targetId != 'solar_system_01') {
-        weeklySnapshot = await FirebaseFirestore.instance
-            .collection('analytics')
-            .doc('solar_system_01')
-            .collection('weekly')
-            .get();
-      }
-
-      final fetchedWeekly = weeklySnapshot.docs
-          .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
-          .toList();
-      fetchedWeekly.sort((a, b) => a.id.compareTo(b.id));
-
-      // Fetch Annual Analytics Summaries
-      var annualSnapshot = await FirebaseFirestore.instance
-          .collection('analytics')
-          .doc(targetId)
-          .collection('annually')
-          .get();
-
-      if (annualSnapshot.docs.isEmpty && targetId != 'solar_system_01') {
-        annualSnapshot = await FirebaseFirestore.instance
-            .collection('analytics')
-            .doc('solar_system_01')
-            .collection('annually')
-            .get();
-      }
-
-      final fetchedAnnual = annualSnapshot.docs
-          .map((doc) => AnalyticsDocModel.fromFirestore(doc.data(), doc.id))
-          .toList();
-      fetchedAnnual.sort((a, b) => a.id.compareTo(b.id));
+      final fetchedDaily = await _fetchAnalyticsForSubcollection('daily');
+      final fetchedWeekly = await _fetchAnalyticsForSubcollection('weekly');
+      final fetchedAnnual = await _fetchAnalyticsForSubcollection('annually');
 
       setState(() {
         _dailyDocs = fetchedDaily;
@@ -465,14 +606,25 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   double get _currentYearTotalPower {
     final currentYear = _latestDate.year;
+    final yearStr = '$currentYear';
+
     final doc = _annualDocs.cast<AnalyticsDocModel?>().firstWhere(
-      (d) => d!.id == '$currentYear',
+      (d) => d!.id == yearStr || d.id.startsWith(yearStr),
       orElse: () => null,
     );
-    if (doc != null) {
-      return doc.totalKwh;
+    if (doc != null && doc.totalKwh > 0) {
+      return max(0.0, doc.totalKwh);
     }
-    return _dailyDocs.fold(0.0, (sum, doc) => sum + doc.totalKwh);
+
+    final dailySum = _dailyDocs
+        .where((d) => d.id.startsWith(yearStr))
+        .fold(0.0, (sum, d) => sum + max(0.0, d.totalKwh));
+    if (dailySum > 0) return max(0.0, dailySum);
+
+    return max(
+      0.0,
+      _dailyDocs.fold(0.0, (sum, d) => sum + max(0.0, d.totalKwh)),
+    );
   }
 
   List<AnalyticsRecord> _buildRecordsForTimeframe(int timeframe) {
@@ -504,20 +656,24 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
       double peakVal = 0.0;
       for (var b in timeBuckets) {
-        final v = doc.bars[b] ?? 0.0;
+        final v = _getBarValue(doc.bars, b);
         if (v > peakVal) peakVal = v;
       }
 
       final dailyDivisor = max(expectedBucketMax, peakVal > 0 ? peakVal : 1.0);
 
       final bars = timeBuckets.map((b) {
-        final val = doc.bars[b] ?? 0.0;
-        final isPeak = peakVal > 0 && val == peakVal;
+        final val = _getBarValue(doc.bars, b);
+        final isPeak = peakVal > 0 && val == peakVal && val > 0;
+        final double barRatio = (peakVal > 0 && dailyDivisor > 0)
+            ? (val / dailyDivisor).clamp(0.0, 1.0)
+            : 0.0;
+
         return BarData(
           label: b,
-          val: (val / dailyDivisor).clamp(0.0, 1.0),
+          val: val <= 0 ? 0.0 : barRatio,
           isHighlight: isPeak,
-          peakVal: isPeak ? '${val.toStringAsFixed(1)} kWh' : '',
+          peakVal: (isPeak && val > 0) ? '${val.toStringAsFixed(1)} kWh' : '',
         );
       }).toList();
 
@@ -531,7 +687,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       return AnalyticsRecord(
         title: titleText,
         bars: bars,
-        totalKwh: doc.totalKwh.toStringAsFixed(1),
+        totalKwh: max(0.0, doc.totalKwh).toStringAsFixed(1),
       );
     });
   }
@@ -548,32 +704,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return _weeklyDocs.map((doc) {
       double peakVal = 0.0;
       for (var day in weekLabels) {
-        final v = doc.bars[day] ?? 0.0;
+        final v = max(0.0, doc.bars[day] ?? 0.0);
         if (v > peakVal) peakVal = v;
       }
 
       final weeklyDivisor = max(expectedDailyMax, peakVal > 0 ? peakVal : 1.0);
 
       final bars = weekLabels.map((day) {
-        final val = doc.bars[day] ?? 0.0;
+        final val = max(0.0, doc.bars[day] ?? 0.0);
         final isToday = day == todayLabel && doc.id == _weeklyDocs.last.id;
-        final isPeak = peakVal > 0 && val == peakVal && !isToday;
+        final isPeak = peakVal > 0 && val == peakVal && !isToday && val > 0;
+        final double barRatio = (peakVal > 0 && weeklyDivisor > 0)
+            ? (val / weeklyDivisor).clamp(0.0, 1.0)
+            : 0.0;
 
         return BarData(
           label: day,
-          val: (val / weeklyDivisor).clamp(0.0, 1.0),
+          val: val <= 0 ? 0.0 : barRatio,
           isHighlight: isPeak,
           isInProgress: isToday,
-          peakVal: isPeak
+          peakVal: (isPeak && val > 0)
               ? '${val.toStringAsFixed(1)} kWh'
-              : (isToday ? '${val.toStringAsFixed(1)} kWh' : ''),
+              : (isToday && val > 0 ? '${val.toStringAsFixed(1)} kWh' : ''),
         );
       }).toList();
 
       return AnalyticsRecord(
         title: doc.title,
         bars: bars,
-        totalKwh: doc.totalKwh.toStringAsFixed(1),
+        totalKwh: max(0.0, doc.totalKwh).toStringAsFixed(1),
       );
     }).toList();
   }
@@ -603,12 +762,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     List<AnalyticsRecord> records = [];
 
     for (var doc in _annualDocs) {
-      // First Half
       double firstHalfTotal = 0.0;
       double firstHalfPeak = 0.0;
       for (int m = 1; m <= 6; m++) {
         final monthKey = monthNames[m - 1];
-        final v = doc.bars[monthKey] ?? 0.0;
+        final v = max(0.0, doc.bars[monthKey] ?? 0.0);
         firstHalfTotal += v;
         if (v > firstHalfPeak) firstHalfPeak = v;
       }
@@ -621,14 +779,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       List<BarData> firstHalfBars = [];
       for (int m = 1; m <= 6; m++) {
         final monthKey = monthNames[m - 1];
-        final v = doc.bars[monthKey] ?? 0.0;
-        final isPeak = firstHalfPeak > 0 && v == firstHalfPeak;
+        final v = max(0.0, doc.bars[monthKey] ?? 0.0);
+        final isPeak = firstHalfPeak > 0 && v == firstHalfPeak && v > 0;
+        final double barRatio = (firstHalfPeak > 0 && firstHalfDivisor > 0)
+            ? (v / firstHalfDivisor).clamp(0.0, 1.0)
+            : 0.0;
         firstHalfBars.add(
           BarData(
             label: monthKey,
-            val: (v / firstHalfDivisor).clamp(0.0, 1.0),
+            val: v <= 0 ? 0.0 : barRatio,
             isHighlight: isPeak,
-            peakVal: isPeak ? '${v.toStringAsFixed(0)} kWh' : '',
+            peakVal: (isPeak && v > 0) ? '${v.toStringAsFixed(0)} kWh' : '',
           ),
         );
       }
@@ -637,16 +798,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         AnalyticsRecord(
           title: '${doc.id} - First Half',
           bars: firstHalfBars,
-          totalKwh: firstHalfTotal.toStringAsFixed(0),
+          totalKwh: max(0.0, firstHalfTotal).toStringAsFixed(0),
         ),
       );
 
-      // Second Half
       double secondHalfTotal = 0.0;
       double secondHalfPeak = 0.0;
       for (int m = 7; m <= 12; m++) {
         final monthKey = monthNames[m - 1];
-        final v = doc.bars[monthKey] ?? 0.0;
+        final v = max(0.0, doc.bars[monthKey] ?? 0.0);
         secondHalfTotal += v;
         if (v > secondHalfPeak) secondHalfPeak = v;
       }
@@ -659,14 +819,17 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       List<BarData> secondHalfBars = [];
       for (int m = 7; m <= 12; m++) {
         final monthKey = monthNames[m - 1];
-        final v = doc.bars[monthKey] ?? 0.0;
-        final isPeak = secondHalfPeak > 0 && v == secondHalfPeak;
+        final v = max(0.0, doc.bars[monthKey] ?? 0.0);
+        final isPeak = secondHalfPeak > 0 && v == secondHalfPeak && v > 0;
+        final double barRatio = (secondHalfPeak > 0 && secondHalfDivisor > 0)
+            ? (v / secondHalfDivisor).clamp(0.0, 1.0)
+            : 0.0;
         secondHalfBars.add(
           BarData(
             label: monthKey,
-            val: (v / secondHalfDivisor).clamp(0.0, 1.0),
+            val: v <= 0 ? 0.0 : barRatio,
             isHighlight: isPeak,
-            peakVal: isPeak ? '${v.toStringAsFixed(0)} kWh' : '',
+            peakVal: (isPeak && v > 0) ? '${v.toStringAsFixed(0)} kWh' : '',
           ),
         );
       }
@@ -675,7 +838,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         AnalyticsRecord(
           title: '${doc.id} - Second Half',
           bars: secondHalfBars,
-          totalKwh: secondHalfTotal.toStringAsFixed(0),
+          totalKwh: max(0.0, secondHalfTotal).toStringAsFixed(0),
         ),
       );
     }
@@ -715,6 +878,700 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         curve: Curves.easeInOut,
       );
     }
+  }
+
+  void _showExportCsvModal() {
+    int rangeType = 0; // 0: Year, 1: Day, 2: Exact Time Range
+    int selectedYear = _latestDate.year;
+    DateTime selectedDay = _latestDate;
+    DateTime startDate = _latestDate.subtract(const Duration(days: 7));
+    TimeOfDay startTime = const TimeOfDay(hour: 0, minute: 0);
+    DateTime endDate = _latestDate;
+    TimeOfDay endTime = const TimeOfDay(hour: 23, minute: 59);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final startDateTime = DateTime(
+              startDate.year,
+              startDate.month,
+              startDate.day,
+              startTime.hour,
+              startTime.minute,
+            );
+            final endDateTime = DateTime(
+              endDate.year,
+              endDate.month,
+              endDate.day,
+              endTime.hour,
+              endTime.minute,
+            );
+
+            return Container(
+              decoration: const BoxDecoration(
+                color: pageBg,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              padding: EdgeInsets.only(
+                left: 24,
+                right: 24,
+                top: 20,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Export Data as CSV',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.black,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.black54,
+                          ),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Select Range Type',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _buildRangeChoiceChip(
+                          label: 'Year',
+                          selected: rangeType == 0,
+                          onTap: () => setModalState(() => rangeType = 0),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildRangeChoiceChip(
+                          label: 'Day',
+                          selected: rangeType == 1,
+                          onTap: () => setModalState(() => rangeType = 1),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildRangeChoiceChip(
+                          label: 'Exact Time',
+                          selected: rangeType == 2,
+                          onTap: () => setModalState(() => rangeType = 2),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (rangeType == 0) ...[
+                      const Text(
+                        'Select Year',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int>(
+                            value: selectedYear,
+                            isExpanded: true,
+                            items: List.generate(5, (index) {
+                              final y = _latestDate.year - index;
+                              return DropdownMenuItem(
+                                value: y,
+                                child: Text('$y'),
+                              );
+                            }),
+                            onChanged: (val) {
+                              if (val != null) {
+                                setModalState(() => selectedYear = val);
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ] else if (rangeType == 1) ...[
+                      const Text(
+                        'Select Specific Date',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      InkWell(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: selectedDay,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                          );
+                          if (picked != null) {
+                            setModalState(() => selectedDay = picked);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: cardBg,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${selectedDay.year}-${selectedDay.month.toString().padLeft(2, '0')}-${selectedDay.day.toString().padLeft(2, '0')}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const Icon(
+                                Icons.calendar_today_rounded,
+                                size: 18,
+                                color: darkGreen,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ] else ...[
+                      const Text(
+                        'Start Date & Exact Time',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: startDate,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime(2030),
+                                );
+                                if (picked != null) {
+                                  setModalState(() => startDate = picked);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cardBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${startDate.year}-${startDate.month.toString().padLeft(2, '0')}-${startDate.day.toString().padLeft(2, '0')}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: startTime,
+                                );
+                                if (picked != null) {
+                                  setModalState(() => startTime = picked);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cardBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  startTime.format(context),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'End Date & Exact Time',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final picked = await showDatePicker(
+                                  context: context,
+                                  initialDate: endDate,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime(2030),
+                                );
+                                if (picked != null) {
+                                  setModalState(() => endDate = picked);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cardBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${endDate.year}-${endDate.month.toString().padLeft(2, '0')}-${endDate.day.toString().padLeft(2, '0')}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: InkWell(
+                              onTap: () async {
+                                final picked = await showTimePicker(
+                                  context: context,
+                                  initialTime: endTime,
+                                );
+                                if (picked != null) {
+                                  setModalState(() => endTime = picked);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: cardBg,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  endTime.format(context),
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: darkGreen,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.download_rounded,
+                          color: Colors.white,
+                        ),
+                        label: const Text(
+                          'Generate & Export CSV',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _generateAndExportCsv(
+                            rangeType: rangeType,
+                            year: selectedYear,
+                            selectedDay: selectedDay,
+                            startDateTime: startDateTime,
+                            endDateTime: endDateTime,
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildRangeChoiceChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? darkGreen : cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: selected ? darkGreen : Colors.black12),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: selected ? Colors.white : Colors.black87,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _generateAndExportCsv({
+    required int rangeType,
+    required int year,
+    required DateTime selectedDay,
+    required DateTime startDateTime,
+    required DateTime endDateTime,
+  }) {
+    List<List<String>> csvRows = [
+      [
+        'Timestamp / Date',
+        'Site ID',
+        'Site Name',
+        'Timeframe / Bucket',
+        'Energy Output (kWh)',
+        'Est. Savings (PHP)',
+      ],
+    ];
+
+    final siteId = _selectedSite.groupId;
+    final siteName = _selectedSite.groupName;
+
+    if (rangeType == 0) {
+      final yearStr = '$year';
+      final yearDocs = _dailyDocs
+          .where((doc) => doc.id.startsWith(yearStr))
+          .toList();
+
+      if (yearDocs.isEmpty) {
+        for (var doc in _annualDocs) {
+          if (doc.id == yearStr) {
+            doc.bars.forEach((month, kwh) {
+              final safeKwh = max(0.0, kwh);
+              csvRows.add([
+                '$yearStr-$month',
+                siteId,
+                siteName,
+                'Monthly ($month)',
+                safeKwh.toStringAsFixed(2),
+                (safeKwh * _tariffRate).toStringAsFixed(2),
+              ]);
+            });
+            csvRows.add([
+              '$yearStr Total',
+              siteId,
+              siteName,
+              'Annual Total',
+              doc.totalKwh.toStringAsFixed(2),
+              (doc.totalKwh * _tariffRate).toStringAsFixed(2),
+            ]);
+          }
+        }
+      } else {
+        for (var doc in yearDocs) {
+          doc.bars.forEach((timeBucket, kwh) {
+            final safeKwh = max(0.0, kwh);
+            csvRows.add([
+              '${doc.id} $timeBucket',
+              siteId,
+              siteName,
+              timeBucket,
+              safeKwh.toStringAsFixed(2),
+              (safeKwh * _tariffRate).toStringAsFixed(2),
+            ]);
+          });
+          csvRows.add([
+            doc.id,
+            siteId,
+            siteName,
+            'Daily Total',
+            doc.totalKwh.toStringAsFixed(2),
+            (doc.totalKwh * _tariffRate).toStringAsFixed(2),
+          ]);
+        }
+      }
+    } else if (rangeType == 1) {
+      final dayStr =
+          '${selectedDay.year}-${selectedDay.month.toString().padLeft(2, '0')}-${selectedDay.day.toString().padLeft(2, '0')}';
+      final matchedDocs = _dailyDocs.where((doc) => doc.id == dayStr).toList();
+
+      if (matchedDocs.isNotEmpty) {
+        for (var doc in matchedDocs) {
+          doc.bars.forEach((timeBucket, kwh) {
+            final safeKwh = max(0.0, kwh);
+            csvRows.add([
+              '${doc.id} $timeBucket',
+              siteId,
+              siteName,
+              timeBucket,
+              safeKwh.toStringAsFixed(2),
+              (safeKwh * _tariffRate).toStringAsFixed(2),
+            ]);
+          });
+          csvRows.add([
+            doc.id,
+            siteId,
+            siteName,
+            'Daily Total',
+            doc.totalKwh.toStringAsFixed(2),
+            (doc.totalKwh * _tariffRate).toStringAsFixed(2),
+          ]);
+        }
+      } else {
+        csvRows.add([dayStr, siteId, siteName, 'Full Day', '0.00', '0.00']);
+      }
+    } else {
+      final bucketHourMap = {
+        '6AM': 6,
+        '9AM': 9,
+        '12NN': 12,
+        '3PM': 15,
+        '6PM': 18,
+      };
+
+      int matchCount = 0;
+      for (var doc in _dailyDocs) {
+        final docDate = DateTime.tryParse(doc.id);
+        if (docDate == null) continue;
+
+        doc.bars.forEach((bucket, kwh) {
+          final hour = bucketHourMap[bucket] ?? 12;
+          final bucketDt = DateTime(
+            docDate.year,
+            docDate.month,
+            docDate.day,
+            hour,
+          );
+
+          if ((bucketDt.isAfter(startDateTime) ||
+                  bucketDt.isAtSameMomentAs(startDateTime)) &&
+              (bucketDt.isBefore(endDateTime) ||
+                  bucketDt.isAtSameMomentAs(endDateTime))) {
+            matchCount++;
+            final safeKwh = max(0.0, kwh);
+            csvRows.add([
+              '${doc.id} $bucket',
+              siteId,
+              siteName,
+              bucket,
+              safeKwh.toStringAsFixed(2),
+              (safeKwh * _tariffRate).toStringAsFixed(2),
+            ]);
+          }
+        });
+      }
+
+      if (matchCount == 0) {
+        csvRows.add([
+          '${startDateTime.toString().split('.')[0]} to ${endDateTime.toString().split('.')[0]}',
+          siteId,
+          siteName,
+          'Custom Range',
+          '0.00',
+          '0.00',
+        ]);
+      }
+    }
+
+    final csvContent = csvRows
+        .map((row) {
+          return row
+              .map((cell) {
+                if (cell.contains(',') ||
+                    cell.contains('"') ||
+                    cell.contains('\n')) {
+                  return '"${cell.replaceAll('"', '""')}"';
+                }
+                return cell;
+              })
+              .join(',');
+        })
+        .join('\n');
+
+    _showCsvResultDialog(csvContent, csvRows.length - 1);
+  }
+
+  void _showCsvResultDialog(String csvContent, int recordCount) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: darkGreen),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'CSV Export Ready',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Exported $recordCount record(s) for site: ${_selectedSite.groupName}',
+                style: const TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                constraints: const BoxConstraints(maxHeight: 180),
+                width: double.maxFinite,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: SingleChildScrollView(
+                  child: Text(
+                    csvContent,
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      color: Color(0xFF81C784),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Close',
+                style: TextStyle(color: Colors.black54),
+              ),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: darkGreen,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(
+                Icons.copy_rounded,
+                size: 16,
+                color: Colors.white,
+              ),
+              label: const Text(
+                'Copy CSV',
+                style: TextStyle(color: Colors.white),
+              ),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: csvContent));
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('CSV copied to clipboard successfully!'),
+                    backgroundColor: darkGreen,
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showSiteSelectionModal() {
@@ -777,45 +1634,51 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   final isSelected = site.groupId == _selectedSite.groupId;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: Material(
-                      color: isSelected ? darkGreen.withOpacity(0.12) : cardBg,
-                      clipBehavior: Clip.antiAlias,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        side: isSelected
-                            ? const BorderSide(color: darkGreen, width: 1.5)
-                            : BorderSide.none,
-                      ),
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.location_on_rounded,
-                          color: isSelected ? darkGreen : Colors.black45,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeInOut,
+                      child: Material(
+                        color: isSelected
+                            ? darkGreen.withOpacity(0.12)
+                            : cardBg,
+                        clipBehavior: Clip.antiAlias,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: isSelected
+                              ? const BorderSide(color: darkGreen, width: 1.5)
+                              : BorderSide.none,
                         ),
-                        title: Text(
-                          site.groupName,
-                          style: TextStyle(
-                            fontWeight: isSelected
-                                ? FontWeight.w800
-                                : FontWeight.w600,
-                            color: isSelected ? darkGreen : Colors.black87,
+                        child: ListTile(
+                          leading: Icon(
+                            Icons.location_on_rounded,
+                            color: isSelected ? darkGreen : Colors.black45,
                           ),
+                          title: Text(
+                            site.groupName,
+                            style: TextStyle(
+                              fontWeight: isSelected
+                                  ? FontWeight.w800
+                                  : FontWeight.w600,
+                              color: isSelected ? darkGreen : Colors.black87,
+                            ),
+                          ),
+                          trailing: isSelected
+                              ? const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: darkGreen,
+                                )
+                              : const Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.black38,
+                                ),
+                          onTap: () {
+                            setState(() {
+                              _selectedSite = site;
+                            });
+                            Navigator.pop(context);
+                            _loadFirestoreAnalytics();
+                          },
                         ),
-                        trailing: isSelected
-                            ? const Icon(
-                                Icons.check_circle_rounded,
-                                color: darkGreen,
-                              )
-                            : const Icon(
-                                Icons.chevron_right_rounded,
-                                color: Colors.black38,
-                              ),
-                        onTap: () {
-                          setState(() {
-                            _selectedSite = site;
-                          });
-                          Navigator.pop(context);
-                          _loadFirestoreAnalytics();
-                        },
                       ),
                     ),
                   );
@@ -832,18 +1695,49 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text(
-          'Portfolio',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Colors.black,
-          ),
+        Row(
+          children: [
+            const Text(
+              'Portfolio',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Colors.black,
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: _showExportCsvModal,
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: darkGreen.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.download_rounded, size: 14, color: darkGreen),
+                    SizedBox(width: 4),
+                    Text(
+                      'CSV',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: darkGreen,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
         InkWell(
           onTap: _showSiteSelectionModal,
           borderRadius: BorderRadius.circular(20),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: cardBg,
@@ -859,12 +1753,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                   color: darkGreen,
                 ),
                 const SizedBox(width: 6),
-                Text(
-                  _selectedSite.groupName,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.black87,
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, animation) =>
+                      FadeTransition(opacity: animation, child: child),
+                  child: Text(
+                    _selectedSite.groupName,
+                    key: ValueKey<String>(_selectedSite.groupId),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black87,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -884,7 +1784,6 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     final currentYearPower = _currentYearTotalPower;
-    // Dynamic electricity tariff multiplier replacing hardcoded 12.0
     final currentYearSavings = currentYearPower * _tariffRate;
 
     final records = _buildRecordsForTimeframe(_selectedTimeframe);
@@ -911,7 +1810,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 color: Colors.black,
               ),
             ),
-            _buildCircularIcon(Icons.bar_chart_rounded),
+            GestureDetector(
+              onTap: _showExportCsvModal,
+              child: _buildCircularIcon(Icons.file_download_outlined),
+            ),
           ],
         ),
       ),
@@ -936,32 +1838,47 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            if (_isLoadingReadings)
-              Container(
-                height: 250,
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(28),
-                ),
-                child: const Center(
-                  child: CircularProgressIndicator(color: darkGreen),
-                ),
-              )
-            else if (records.isEmpty)
-              _buildEmptyChartCard()
-            else
-              _buildGraphCard(records),
-            const SizedBox(height: 24),
-            const Text(
-              'Output Overview',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Colors.black,
-              ),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              child: _isLoadingReadings
+                  ? Container(
+                      key: const ValueKey('loading_chart_container'),
+                      height: 250,
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      child: const Center(
+                        child: CircularProgressIndicator(color: darkGreen),
+                      ),
+                    )
+                  : records.isEmpty
+                  ? Container(
+                      key: const ValueKey('empty_chart_container'),
+                      child: _buildEmptyChartCard(),
+                    )
+                  : Container(
+                      key: ValueKey<String>(
+                        'chart_${_selectedSite.groupId}_$_selectedTimeframe',
+                      ),
+                      child: _buildGraphCard(records),
+                    ),
             ),
-            const SizedBox(height: 12),
-            _buildOutputOverviewCard(),
+            if (_selectedSite.groupId == 'all') ...[
+              const SizedBox(height: 24),
+              const Text(
+                'Output Overview',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildOutputOverviewCard(),
+            ],
             const SizedBox(height: 32),
           ],
         ),
@@ -1067,9 +1984,26 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            Text(
-              value,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.0, 0.1),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: Text(
+                value,
+                key: ValueKey<String>(value),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
             ),
           ],
         ),
@@ -1101,12 +2035,30 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text(
-                        activeRecord.totalKwh,
-                        style: const TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.black,
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0.0, 0.15),
+                                end: Offset.zero,
+                              ).animate(animation),
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: Text(
+                          activeRecord.totalKwh,
+                          key: ValueKey<String>(
+                            'total_${_selectedSite.groupId}_${_selectedTimeframe}_${activeRecord.totalKwh}',
+                          ),
+                          style: const TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -1180,9 +2132,10 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: barData.map<Widget>((item) {
-                                    final calculatedBarHeight =
-                                        availableBarHeight *
-                                        item.val.clamp(0.0, 1.0);
+                                    final calculatedBarHeight = item.val <= 0
+                                        ? 0.0
+                                        : availableBarHeight *
+                                              item.val.clamp(0.0, 1.0);
 
                                     Color barColor;
                                     if (item.isInProgress) {
@@ -1194,30 +2147,55 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                     }
 
                                     return Expanded(
-                                      child: Stack(
-                                        alignment: Alignment.bottomCenter,
-                                        clipBehavior: Clip.none,
-                                        children: [
-                                          Container(
-                                            width: 40,
-                                            height: calculatedBarHeight,
-                                            decoration: BoxDecoration(
-                                              color: barColor,
-                                              borderRadius:
-                                                  const BorderRadius.vertical(
-                                                    top: Radius.circular(8),
-                                                  ),
-                                            ),
-                                          ),
-                                          if (item.peakVal.isNotEmpty)
-                                            Positioned(
-                                              bottom: calculatedBarHeight + 6,
-                                              child: _buildHighlightLabel(
-                                                item.peakVal,
-                                                item.isInProgress,
+                                      child: TweenAnimationBuilder<double>(
+                                        key: ValueKey<String>(
+                                          'bar_${_selectedSite.groupId}_${_selectedTimeframe}_${recordIndex}_${item.label}',
+                                        ),
+                                        tween: Tween<double>(
+                                          begin: 0.0,
+                                          end: calculatedBarHeight,
+                                        ),
+                                        duration: const Duration(
+                                          milliseconds: 450,
+                                        ),
+                                        curve: Curves.easeOutCubic,
+                                        builder: (context, animatedHeight, child) {
+                                          return Stack(
+                                            alignment: Alignment.bottomCenter,
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Container(
+                                                width: 40,
+                                                height: animatedHeight,
+                                                decoration: BoxDecoration(
+                                                  color: barColor,
+                                                  borderRadius:
+                                                      const BorderRadius.vertical(
+                                                        top: Radius.circular(8),
+                                                      ),
+                                                ),
                                               ),
-                                            ),
-                                        ],
+                                              if (item.peakVal.isNotEmpty &&
+                                                  animatedHeight > 0 &&
+                                                  animatedHeight >=
+                                                      calculatedBarHeight *
+                                                          0.75)
+                                                Positioned(
+                                                  bottom: animatedHeight + 6,
+                                                  child: AnimatedOpacity(
+                                                    duration: const Duration(
+                                                      milliseconds: 200,
+                                                    ),
+                                                    opacity: 1.0,
+                                                    child: _buildHighlightLabel(
+                                                      item.peakVal,
+                                                      item.isInProgress,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          );
+                                        },
                                       ),
                                     );
                                   }).toList(),
@@ -1309,7 +2287,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       _navigateToPage(currentIndex - 1, totalRecords),
                 )
               : const SizedBox(width: 48),
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: Text(
+              title,
+              key: ValueKey<String>(title),
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
           canGoForward
               ? IconButton(
                   icon: const Icon(Icons.chevron_right_rounded),
@@ -1354,7 +2339,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           return OverviewGroupItem(
             groupId: s.groupId,
             groupName: s.groupName,
-            kwh: _siteOutputs[s.groupId] ?? 0.0,
+            kwh: max(0.0, _siteOutputs[s.groupId] ?? 0.0),
           );
         }).toList();
       }
@@ -1364,7 +2349,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         orElse: () => OverviewGroupItem(
           groupId: _selectedSite.groupId,
           groupName: _selectedSite.groupName,
-          kwh: _siteOutputs[_selectedSite.groupId] ?? 0.0,
+          kwh: max(0.0, _siteOutputs[_selectedSite.groupId] ?? 0.0),
         ),
       );
       displayItems = [match];
@@ -1373,8 +2358,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     List<double> values = [];
     double totalOutput = 0.0;
     for (var item in displayItems) {
-      values.add(item.kwh);
-      totalOutput += item.kwh;
+      final safeKwh = max(0.0, item.kwh);
+      values.add(safeKwh);
+      totalOutput += safeKwh;
     }
 
     if (totalOutput <= 0.0 &&
@@ -1388,72 +2374,100 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final bool isNoData = displayItems.isEmpty || totalOutput <= 0.0;
     final bool isSingleSite = displayItems.length == 1 && !isNoData;
 
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 140,
-            height: 140,
-            child: CustomPaint(
-              painter: DonutChartPainter(
-                values: values,
-                colors: _outputOverviewColors,
-                isNoData: isNoData,
-                isSingleSite: isSingleSite,
-              ),
-            ),
-          ),
-          const SizedBox(width: 24),
-          Expanded(
-            child: SizedBox(
+    return InkWell(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const OutputOverviewScreen()),
+        );
+      },
+      borderRadius: BorderRadius.circular(28),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(28),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 140,
               height: 140,
-              child: Column(
-                children: List.generate(4, (index) {
-                  return Expanded(
-                    child: Container(
-                      alignment: Alignment.centerLeft,
-                      child: index < displayItems.length
-                          ? Row(
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: isNoData
-                                        ? const Color(0xFFC4C4C4)
-                                        : _outputOverviewColors[index %
-                                              _outputOverviewColors.length],
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    displayItems[index].groupName,
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.black87,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : const SizedBox.shrink(),
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey<String>(
+                  'donut_${_selectedSite.groupId}_$_selectedTimeframe',
+                ),
+                tween: Tween<double>(begin: 0.0, end: 1.0),
+                duration: const Duration(milliseconds: 600),
+                curve: Curves.easeOutCubic,
+                builder: (context, progress, child) {
+                  final animatedValues = values
+                      .map((v) => v * progress)
+                      .toList();
+                  return CustomPaint(
+                    painter: DonutChartPainter(
+                      values: animatedValues,
+                      colors: _outputOverviewColors,
+                      isNoData: isNoData,
+                      isSingleSite: isSingleSite,
                     ),
                   );
-                }),
+                },
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 24),
+            Expanded(
+              child: SizedBox(
+                height: 140,
+                child: Column(
+                  children: List.generate(4, (index) {
+                    return Expanded(
+                      child: Container(
+                        alignment: Alignment.centerLeft,
+                        child: index < displayItems.length
+                            ? AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                child: Row(
+                                  key: ValueKey<String>(
+                                    'legend_${displayItems[index].groupId}_$index',
+                                  ),
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        color: isNoData
+                                            ? const Color(0xFFC4C4C4)
+                                            : _outputOverviewColors[index %
+                                                  _outputOverviewColors.length],
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        displayItems[index].groupName,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.black87,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

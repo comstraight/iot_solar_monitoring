@@ -863,557 +863,780 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                     // 1. ACCOUNT & PROFILE (Cloud Firestore-backed)
                     if (_matchesSearch(_SettingsStrings.searchKeyAccount)) ...[
-                      _buildSectionHeader(
-                        _SettingsStrings.sectionAccountProfile,
-                      ),
-                      _buildFloatingCard(
-                        children: [
-                          StreamBuilder<DocumentSnapshot>(
-                            stream: currentUser != null
-                                ? FirebaseFirestore.instance
-                                      .collection(
-                                        _SettingsFirestoreKeys.collectionUsers,
-                                      )
-                                      .doc(currentUser.uid)
-                                      .snapshots(includeMetadataChanges: false)
-                                : null,
-                            builder: (context, snapshot) {
-                              final data =
-                                  snapshot.data?.data()
-                                      as Map<String, dynamic>?;
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 400),
+                        curve: Curves.easeOutCubic,
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Transform.translate(
+                              offset: Offset(0, (1 - value) * 16),
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader(
+                              _SettingsStrings.sectionAccountProfile,
+                            ),
+                            _buildFloatingCard(
+                              children: [
+                                StreamBuilder<DocumentSnapshot>(
+                                  stream: currentUser != null
+                                      ? FirebaseFirestore.instance
+                                            .collection(
+                                              _SettingsFirestoreKeys
+                                                  .collectionUsers,
+                                            )
+                                            .doc(currentUser.uid)
+                                            .snapshots(
+                                              includeMetadataChanges: false,
+                                            )
+                                      : null,
+                                  builder: (context, snapshot) {
+                                    final data =
+                                        snapshot.data?.data()
+                                            as Map<String, dynamic>?;
 
-                              final String name =
-                                  data?[_SettingsFirestoreKeys.fieldName] ??
-                                  currentUser?.displayName ??
-                                  _SettingsStrings.fallbackName;
-                              final String email =
-                                  data?[_SettingsFirestoreKeys.fieldEmail] ??
-                                  currentUser?.email ??
-                                  _SettingsStrings.fallbackEmail;
-                              final String phone =
-                                  data?[_SettingsFirestoreKeys.fieldPhone] ??
-                                  _SettingsStrings.fallbackPhone;
+                                    final String name =
+                                        data?[_SettingsFirestoreKeys
+                                            .fieldName] ??
+                                        currentUser?.displayName ??
+                                        _SettingsStrings.fallbackName;
+                                    final String email =
+                                        data?[_SettingsFirestoreKeys
+                                            .fieldEmail] ??
+                                        currentUser?.email ??
+                                        _SettingsStrings.fallbackEmail;
+                                    final String phone =
+                                        data?[_SettingsFirestoreKeys
+                                            .fieldPhone] ??
+                                        _SettingsStrings.fallbackPhone;
 
-                              return ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: _SettingsDimensions.paddingLarge,
-                                  vertical: _SettingsDimensions.paddingMicro,
+                                    return ListTile(
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                            horizontal: _SettingsDimensions
+                                                .paddingLarge,
+                                            vertical: _SettingsDimensions
+                                                .paddingMicro,
+                                          ),
+                                      leading: Container(
+                                        padding: const EdgeInsets.all(
+                                          _SettingsDimensions.paddingMedium,
+                                        ),
+                                        decoration: const BoxDecoration(
+                                          color: _SettingsColors.lightGreenBg,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          CupertinoIcons.person_fill,
+                                          color: _SettingsColors.midGreen,
+                                          size: _SettingsDimensions
+                                              .iconSizeStandard,
+                                        ),
+                                      ),
+                                      title: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 250,
+                                        ),
+                                        transitionBuilder: (child, animation) =>
+                                            FadeTransition(
+                                              opacity: animation,
+                                              child: SlideTransition(
+                                                position: Tween<Offset>(
+                                                  begin: const Offset(
+                                                    0.0,
+                                                    0.15,
+                                                  ),
+                                                  end: Offset.zero,
+                                                ).animate(animation),
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: Text(
+                                          name,
+                                          key: ValueKey<String>(name),
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: _SettingsDimensions
+                                                .fontSizeName,
+                                            color: _SettingsColors.textBlack,
+                                          ),
+                                        ),
+                                      ),
+                                      subtitle: AnimatedSwitcher(
+                                        duration: const Duration(
+                                          milliseconds: 250,
+                                        ),
+                                        transitionBuilder: (child, animation) =>
+                                            FadeTransition(
+                                              opacity: animation,
+                                              child: SlideTransition(
+                                                position: Tween<Offset>(
+                                                  begin: const Offset(
+                                                    0.0,
+                                                    0.15,
+                                                  ),
+                                                  end: Offset.zero,
+                                                ).animate(animation),
+                                                child: child,
+                                              ),
+                                            ),
+                                        child: Text(
+                                          '$email • $phone',
+                                          key: ValueKey<String>(
+                                            '${email}_$phone',
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize:
+                                                _SettingsDimensions.fontSizeSub,
+                                            color: _SettingsColors.textGrey,
+                                          ),
+                                        ),
+                                      ),
+                                      trailing: const Icon(
+                                        CupertinoIcons.chevron_right,
+                                        size:
+                                            _SettingsDimensions.fontSizeChevron,
+                                        color: _SettingsColors.textGrey,
+                                      ),
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) =>
+                                                const ProfileOverviewScreen(),
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
                                 ),
-                                leading: Container(
-                                  padding: const EdgeInsets.all(
-                                    _SettingsDimensions.paddingMedium,
-                                  ),
-                                  decoration: const BoxDecoration(
-                                    color: _SettingsColors.lightGreenBg,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    CupertinoIcons.person_fill,
+                                _buildDivider(),
+                                ListTile(
+                                  leading: const Icon(
+                                    CupertinoIcons.shield_fill,
                                     color: _SettingsColors.midGreen,
                                     size: _SettingsDimensions.iconSizeStandard,
                                   ),
-                                ),
-                                title: Text(
-                                  name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: _SettingsDimensions.fontSizeName,
-                                    color: _SettingsColors.textBlack,
+                                  title: const Text(
+                                    _SettingsStrings.tileSecurityPassword,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
                                   ),
-                                ),
-                                subtitle: Text(
-                                  '$email • $phone',
-                                  style: const TextStyle(
-                                    fontSize: _SettingsDimensions.fontSizeSub,
+                                  subtitle: const Text(
+                                    _SettingsStrings.subtitleChangePassword,
+                                    style: TextStyle(
+                                      fontSize: _SettingsDimensions.fontSizeSub,
+                                      color: _SettingsColors.textGrey,
+                                    ),
+                                  ),
+                                  trailing: const Icon(
+                                    CupertinoIcons.chevron_right,
+                                    size: _SettingsDimensions.fontSizeChevron,
                                     color: _SettingsColors.textGrey,
                                   ),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const SecuritySettingsScreen(),
+                                      ),
+                                    );
+                                  },
                                 ),
-                                trailing: const Icon(
-                                  CupertinoIcons.chevron_right,
-                                  size: _SettingsDimensions.fontSizeChevron,
-                                  color: _SettingsColors.textGrey,
-                                ),
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const ProfileOverviewScreen(),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                          _buildDivider(),
-                          ListTile(
-                            leading: const Icon(
-                              CupertinoIcons.shield_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
+                              ],
                             ),
-                            title: const Text(
-                              _SettingsStrings.tileSecurityPassword,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
-                            ),
-                            subtitle: const Text(
-                              _SettingsStrings.subtitleChangePassword,
-                              style: TextStyle(
-                                fontSize: _SettingsDimensions.fontSizeSub,
-                                color: _SettingsColors.textGrey,
-                              ),
-                            ),
-                            trailing: const Icon(
-                              CupertinoIcons.chevron_right,
-                              size: _SettingsDimensions.fontSizeChevron,
-                              color: _SettingsColors.textGrey,
-                            ),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const SecuritySettingsScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
 
                     // 2. TARIFF & BILLING
                     if (_matchesSearch(_SettingsStrings.searchKeyTariff)) ...[
-                      _buildSectionHeader(
-                        _SettingsStrings.sectionTariffUtility,
-                      ),
-                      _buildFloatingCard(
-                        children: [
-                          ListTile(
-                            leading: const Icon(
-                              CupertinoIcons.money_dollar_circle_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 450),
+                        curve: Curves.easeOutCubic,
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Transform.translate(
+                              offset: Offset(0, (1 - value) * 16),
+                              child: child,
                             ),
-                            title: const Text(
-                              _SettingsStrings.tileElectricityTariff,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader(
+                              _SettingsStrings.sectionTariffUtility,
                             ),
-                            subtitle: const Text(
-                              _SettingsStrings.subtitleTariffSavings,
-                              style: TextStyle(
-                                fontSize: _SettingsDimensions.fontSizeSub,
-                                color: _SettingsColors.textGrey,
-                              ),
+                            _buildFloatingCard(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(
+                                    CupertinoIcons.money_dollar_circle_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileElectricityTariff,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
+                                  ),
+                                  subtitle: const Text(
+                                    _SettingsStrings.subtitleTariffSavings,
+                                    style: TextStyle(
+                                      fontSize: _SettingsDimensions.fontSizeSub,
+                                      color: _SettingsColors.textGrey,
+                                    ),
+                                  ),
+                                  trailing: _buildValueBadge(
+                                    '₱${_tariffRate.toStringAsFixed(2)} / kWh',
+                                  ),
+                                  onTap: _showEditTariffDialog,
+                                ),
+                              ],
                             ),
-                            trailing: _buildValueBadge(
-                              '₱${_tariffRate.toStringAsFixed(2)} / kWh',
-                            ),
-                            onTap: _showEditTariffDialog,
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
 
                     // 3. NOTIFICATIONS & ALERTS (SharedPreferences & Firestore)
                     if (_matchesSearch(_SettingsStrings.searchKeyNotif)) ...[
-                      _buildSectionHeader(
-                        _SettingsStrings.sectionNotifications,
-                      ),
-                      _buildFloatingCard(
-                        children: [
-                          SwitchListTile(
-                            activeThumbColor: _SettingsColors.midGreen,
-                            secondary: const Icon(
-                              CupertinoIcons.bell_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 500),
+                        curve: Curves.easeOutCubic,
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Transform.translate(
+                              offset: Offset(0, (1 - value) * 16),
+                              child: child,
                             ),
-                            title: const Text(
-                              _SettingsStrings.tileAllowNotifications,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader(
+                              _SettingsStrings.sectionNotifications,
                             ),
-                            value: _masterNotifications,
-                            onChanged: (val) => _toggleMasterNotifications(val),
-                          ),
-                          if (_masterNotifications) ...[
-                            _buildDivider(),
-                            SwitchListTile(
-                              activeThumbColor: _SettingsColors.midGreen,
-                              title: const Text(
-                                _SettingsStrings.tileCriticalAlerts,
-                                style: TextStyle(
-                                  fontSize: _SettingsDimensions.fontSizeBody,
-                                  fontWeight: FontWeight.w600,
+                            _buildFloatingCard(
+                              children: [
+                                SwitchListTile(
+                                  activeThumbColor: _SettingsColors.midGreen,
+                                  secondary: const Icon(
+                                    CupertinoIcons.bell_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileAllowNotifications,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
+                                  ),
+                                  value: _masterNotifications,
+                                  onChanged: (val) =>
+                                      _toggleMasterNotifications(val),
                                 ),
-                              ),
-                              value: _alertNotifications,
-                              onChanged: (val) {
-                                setState(() => _alertNotifications = val);
-                                _saveBoolSetting(
-                                  _SettingsSharedPreferencesKeys.prefAlertNotif,
-                                  val,
-                                );
-                              },
-                            ),
-                            _buildDivider(),
-                            SwitchListTile(
-                              activeThumbColor: _SettingsColors.midGreen,
-                              title: const Text(
-                                _SettingsStrings.tileSystemUpdates,
-                                style: TextStyle(
-                                  fontSize: _SettingsDimensions.fontSizeBody,
-                                  fontWeight: FontWeight.w600,
+                                AnimatedSize(
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeInOutCubic,
+                                  child: _masterNotifications
+                                      ? Column(
+                                          key: const ValueKey(
+                                            'expanded_notifications',
+                                          ),
+                                          children: [
+                                            _buildDivider(),
+                                            SwitchListTile(
+                                              activeThumbColor:
+                                                  _SettingsColors.midGreen,
+                                              title: const Text(
+                                                _SettingsStrings
+                                                    .tileCriticalAlerts,
+                                                style: TextStyle(
+                                                  fontSize: _SettingsDimensions
+                                                      .fontSizeBody,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              value: _alertNotifications,
+                                              onChanged: (val) {
+                                                setState(
+                                                  () =>
+                                                      _alertNotifications = val,
+                                                );
+                                                _saveBoolSetting(
+                                                  _SettingsSharedPreferencesKeys
+                                                      .prefAlertNotif,
+                                                  val,
+                                                );
+                                              },
+                                            ),
+                                            _buildDivider(),
+                                            SwitchListTile(
+                                              activeThumbColor:
+                                                  _SettingsColors.midGreen,
+                                              title: const Text(
+                                                _SettingsStrings
+                                                    .tileSystemUpdates,
+                                                style: TextStyle(
+                                                  fontSize: _SettingsDimensions
+                                                      .fontSizeBody,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              value: _updateNotifications,
+                                              onChanged: (val) {
+                                                setState(
+                                                  () => _updateNotifications =
+                                                      val,
+                                                );
+                                                _saveBoolSetting(
+                                                  _SettingsSharedPreferencesKeys
+                                                      .prefUpdateNotif,
+                                                  val,
+                                                );
+                                              },
+                                            ),
+                                            _buildDivider(),
+                                            ListTile(
+                                              leading: const Icon(
+                                                CupertinoIcons.paperplane_fill,
+                                                color: _SettingsColors.midGreen,
+                                                size: _SettingsDimensions
+                                                    .iconSizeStandard,
+                                              ),
+                                              title: const Text(
+                                                _SettingsStrings
+                                                    .tileDeliveryMethod,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: _SettingsDimensions
+                                                      .fontSizeBody,
+                                                ),
+                                              ),
+                                              trailing: _buildValueBadge(
+                                                deliveryMethodText,
+                                              ),
+                                              onTap: () => _showMultiSelectModal(
+                                                title: _SettingsStrings
+                                                    .modalTitlePreferredDelivery,
+                                                options: _SettingsStrings
+                                                    .deliveryOptions,
+                                                currentSelections:
+                                                    _deliveryMethods,
+                                                onChanged: (selected) {
+                                                  setState(
+                                                    () => _deliveryMethods =
+                                                        selected,
+                                                  );
+                                                  _saveListSetting(
+                                                    _SettingsSharedPreferencesKeys
+                                                        .prefDeliveryMethods,
+                                                    selected.toList(),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        )
+                                      : const SizedBox.shrink(
+                                          key: ValueKey(
+                                            'collapsed_notifications',
+                                          ),
+                                        ),
                                 ),
-                              ),
-                              value: _updateNotifications,
-                              onChanged: (val) {
-                                setState(() => _updateNotifications = val);
-                                _saveBoolSetting(
-                                  _SettingsSharedPreferencesKeys
-                                      .prefUpdateNotif,
-                                  val,
-                                );
-                              },
-                            ),
-                            _buildDivider(),
-                            ListTile(
-                              leading: const Icon(
-                                CupertinoIcons.paperplane_fill,
-                                color: _SettingsColors.midGreen,
-                                size: _SettingsDimensions.iconSizeStandard,
-                              ),
-                              title: const Text(
-                                _SettingsStrings.tileDeliveryMethod,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: _SettingsDimensions.fontSizeBody,
+                                _buildDivider(),
+                                SwitchListTile(
+                                  activeThumbColor: _SettingsColors.midGreen,
+                                  secondary: const Icon(
+                                    CupertinoIcons.moon_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileDoNotDisturb,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
+                                  ),
+                                  subtitle: const Text(
+                                    _SettingsStrings.subtitleMuteAlerts,
+                                    style: TextStyle(
+                                      fontSize: _SettingsDimensions.fontSizeSub,
+                                      color: _SettingsColors.textGrey,
+                                    ),
+                                  ),
+                                  value: _quietHours,
+                                  onChanged: (val) {
+                                    setState(() => _quietHours = val);
+                                    _saveBoolSetting(
+                                      _SettingsSharedPreferencesKeys
+                                          .prefQuietHours,
+                                      val,
+                                    );
+                                  },
                                 ),
-                              ),
-                              trailing: _buildValueBadge(deliveryMethodText),
-                              onTap: () => _showMultiSelectModal(
-                                title: _SettingsStrings
-                                    .modalTitlePreferredDelivery,
-                                options: _SettingsStrings.deliveryOptions,
-                                currentSelections: _deliveryMethods,
-                                onChanged: (selected) {
-                                  setState(() => _deliveryMethods = selected);
-                                  _saveListSetting(
-                                    _SettingsSharedPreferencesKeys
-                                        .prefDeliveryMethods,
-                                    selected.toList(),
-                                  );
-                                },
-                              ),
+                              ],
                             ),
                           ],
-                          _buildDivider(),
-                          SwitchListTile(
-                            activeThumbColor: _SettingsColors.midGreen,
-                            secondary: const Icon(
-                              CupertinoIcons.moon_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
-                            ),
-                            title: const Text(
-                              _SettingsStrings.tileDoNotDisturb,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
-                            ),
-                            subtitle: const Text(
-                              _SettingsStrings.subtitleMuteAlerts,
-                              style: TextStyle(
-                                fontSize: _SettingsDimensions.fontSizeSub,
-                                color: _SettingsColors.textGrey,
-                              ),
-                            ),
-                            value: _quietHours,
-                            onChanged: (val) {
-                              setState(() => _quietHours = val);
-                              _saveBoolSetting(
-                                _SettingsSharedPreferencesKeys.prefQuietHours,
-                                val,
-                              );
-                            },
-                          ),
-                        ],
+                        ),
                       ),
                     ],
 
                     // 4. DATA & STORAGE
                     if (_matchesSearch(_SettingsStrings.searchKeyStorage)) ...[
-                      _buildSectionHeader(_SettingsStrings.sectionStorageData),
-                      _buildFloatingCard(
-                        children: [
-                          ListTile(
-                            leading: const Icon(
-                              CupertinoIcons.trash_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 550),
+                        curve: Curves.easeOutCubic,
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Transform.translate(
+                              offset: Offset(0, (1 - value) * 16),
+                              child: child,
                             ),
-                            title: const Text(
-                              _SettingsStrings.tileClearCache,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader(
+                              _SettingsStrings.sectionStorageData,
                             ),
-                            subtitle: const Text(
-                              _SettingsStrings.subtitleCacheSize,
-                              style: TextStyle(
-                                fontSize: _SettingsDimensions.fontSizeSub,
-                                color: _SettingsColors.textGrey,
-                              ),
-                            ),
-                            onTap: () => _showConfirmationDialog(
-                              title: _SettingsStrings.dialogClearCacheTitle,
-                              content: _SettingsStrings.dialogClearCacheContent,
-                              confirmText: _SettingsStrings.buttonClear,
-                              onConfirm: () =>
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      behavior: SnackBarBehavior.floating,
-                                      backgroundColor:
-                                          _SettingsColors.darkGreen,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          _SettingsDimensions.borderRadiusSmall,
-                                        ),
-                                      ),
-                                      content: const Row(
-                                        children: [
-                                          Icon(
-                                            CupertinoIcons
-                                                .checkmark_circle_fill,
-                                            color: _SettingsColors
-                                                .snackbarCheckmark,
-                                          ),
-                                          SizedBox(
-                                            width: _SettingsDimensions
-                                                .paddingMedium,
-                                          ),
-                                          Text(
-                                            _SettingsStrings
-                                                .cacheClearedMessage,
-                                          ),
-                                        ],
-                                      ),
+                            _buildFloatingCard(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(
+                                    CupertinoIcons.trash_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileClearCache,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
                                     ),
                                   ),
+                                  subtitle: const Text(
+                                    _SettingsStrings.subtitleCacheSize,
+                                    style: TextStyle(
+                                      fontSize: _SettingsDimensions.fontSizeSub,
+                                      color: _SettingsColors.textGrey,
+                                    ),
+                                  ),
+                                  onTap: () => _showConfirmationDialog(
+                                    title:
+                                        _SettingsStrings.dialogClearCacheTitle,
+                                    content: _SettingsStrings
+                                        .dialogClearCacheContent,
+                                    confirmText: _SettingsStrings.buttonClear,
+                                    onConfirm: () =>
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            behavior: SnackBarBehavior.floating,
+                                            backgroundColor:
+                                                _SettingsColors.darkGreen,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(
+                                                    _SettingsDimensions
+                                                        .borderRadiusSmall,
+                                                  ),
+                                            ),
+                                            content: const Row(
+                                              children: [
+                                                Icon(
+                                                  CupertinoIcons
+                                                      .checkmark_circle_fill,
+                                                  color: _SettingsColors
+                                                      .snackbarCheckmark,
+                                                ),
+                                                SizedBox(
+                                                  width: _SettingsDimensions
+                                                      .paddingMedium,
+                                                ),
+                                                Text(
+                                                  _SettingsStrings
+                                                      .cacheClearedMessage,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ],
 
                     // 5. SUPPORT & ACTIONS
                     if (_matchesSearch(_SettingsStrings.searchKeySupport)) ...[
-                      _buildSectionHeader(
-                        _SettingsStrings.sectionSupportSystem,
-                      ),
-                      _buildFloatingCard(
-                        children: [
-                          ListTile(
-                            leading: const Icon(
-                              CupertinoIcons.chat_bubble_2_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 600),
+                        curve: Curves.easeOutCubic,
+                        tween: Tween<double>(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Transform.translate(
+                              offset: Offset(0, (1 - value) * 16),
+                              child: child,
                             ),
-                            title: const Text(
-                              _SettingsStrings.tileFeedback,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
+                          );
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildSectionHeader(
+                              _SettingsStrings.sectionSupportSystem,
                             ),
-                            trailing: const Icon(
-                              CupertinoIcons.chevron_right,
-                              size: _SettingsDimensions.fontSizeChevron,
-                              color: _SettingsColors.textGrey,
-                            ),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const FeedbackScreen(),
+                            _buildFloatingCard(
+                              children: [
+                                ListTile(
+                                  leading: const Icon(
+                                    CupertinoIcons.chat_bubble_2_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileFeedback,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
+                                  ),
+                                  trailing: const Icon(
+                                    CupertinoIcons.chevron_right,
+                                    size: _SettingsDimensions.fontSizeChevron,
+                                    color: _SettingsColors.textGrey,
+                                  ),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const FeedbackScreen(),
+                                      ),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
-                          ),
-                          _buildDivider(),
-                          ListTile(
-                            leading: const Icon(
-                              CupertinoIcons.doc_text_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
-                            ),
-                            title: const Text(
-                              _SettingsStrings.tileTermsPrivacy,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
-                            ),
-                            trailing: const Icon(
-                              CupertinoIcons.chevron_right,
-                              size: _SettingsDimensions.fontSizeChevron,
-                              color: _SettingsColors.textGrey,
-                            ),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      const TermsAndPrivacyScreen(),
+                                _buildDivider(),
+                                ListTile(
+                                  leading: const Icon(
+                                    CupertinoIcons.doc_text_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileTermsPrivacy,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
+                                  ),
+                                  trailing: const Icon(
+                                    CupertinoIcons.chevron_right,
+                                    size: _SettingsDimensions.fontSizeChevron,
+                                    color: _SettingsColors.textGrey,
+                                  ),
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const TermsAndPrivacyScreen(),
+                                      ),
+                                    );
+                                  },
                                 ),
-                              );
-                            },
-                          ),
-                          _buildDivider(),
-                          ListTile(
-                            leading: const Icon(
-                              CupertinoIcons.info_circle_fill,
-                              color: _SettingsColors.midGreen,
-                              size: _SettingsDimensions.iconSizeStandard,
+                                _buildDivider(),
+                                ListTile(
+                                  leading: const Icon(
+                                    CupertinoIcons.info_circle_fill,
+                                    color: _SettingsColors.midGreen,
+                                    size: _SettingsDimensions.iconSizeStandard,
+                                  ),
+                                  title: const Text(
+                                    _SettingsStrings.tileAppVersion,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize:
+                                          _SettingsDimensions.fontSizeBody,
+                                    ),
+                                  ),
+                                  subtitle: const Text(
+                                    _SettingsStrings.appVersionString,
+                                    style: TextStyle(
+                                      fontSize: _SettingsDimensions.fontSizeSub,
+                                      color: _SettingsColors.textGrey,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            title: const Text(
-                              _SettingsStrings.tileAppVersion,
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: _SettingsDimensions.fontSizeBody,
-                              ),
+                            const SizedBox(
+                              height: _SettingsDimensions.spacingXLarge,
                             ),
-                            subtitle: const Text(
-                              _SettingsStrings.appVersionString,
-                              style: TextStyle(
-                                fontSize: _SettingsDimensions.fontSizeSub,
-                                color: _SettingsColors.textGrey,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: _SettingsDimensions.spacingXLarge),
 
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: _SettingsDimensions.buttonHeightStandard,
-                              decoration: BoxDecoration(
-                                color: _SettingsColors.cardBg,
-                                borderRadius: BorderRadius.circular(
-                                  _SettingsDimensions.borderRadiusCard,
-                                ),
-                                border: Border.all(
-                                  color: _SettingsColors.borderGreen,
-                                  width:
-                                      _SettingsDimensions.borderWidthStandard,
-                                ),
-                              ),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(
-                                  _SettingsDimensions.borderRadiusCard,
-                                ),
-                                onTap: () => _showConfirmationDialog(
-                                  title: _SettingsStrings.dialogLogoutTitle,
-                                  content: _SettingsStrings.dialogLogoutContent,
-                                  confirmText: _SettingsStrings.buttonLogOut,
-                                  onConfirm: _handleLogout,
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      CupertinoIcons.square_arrow_right,
-                                      size: _SettingsDimensions.iconSizeSmall,
-                                      color: _SettingsColors.darkGreen,
-                                    ),
-                                    SizedBox(
-                                      width: _SettingsDimensions.spacingSmall,
-                                    ),
-                                    Text(
-                                      _SettingsStrings.buttonLogOut,
-                                      style: TextStyle(
-                                        color: _SettingsColors.darkGreen,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize:
-                                            _SettingsDimensions.fontSizeBody,
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    height: _SettingsDimensions
+                                        .buttonHeightStandard,
+                                    decoration: BoxDecoration(
+                                      color: _SettingsColors.cardBg,
+                                      borderRadius: BorderRadius.circular(
+                                        _SettingsDimensions.borderRadiusCard,
+                                      ),
+                                      border: Border.all(
+                                        color: _SettingsColors.borderGreen,
+                                        width: _SettingsDimensions
+                                            .borderWidthStandard,
                                       ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(
-                            width: _SettingsDimensions.spacingLarge,
-                          ),
-                          Expanded(
-                            child: Container(
-                              height: _SettingsDimensions.buttonHeightStandard,
-                              decoration: BoxDecoration(
-                                color: _SettingsColors.deleteBg,
-                                borderRadius: BorderRadius.circular(
-                                  _SettingsDimensions.borderRadiusCard,
-                                ),
-                                border: Border.all(
-                                  color: _SettingsColors.deleteBorder,
-                                  width:
-                                      _SettingsDimensions.borderWidthStandard,
-                                ),
-                              ),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(
-                                  _SettingsDimensions.borderRadiusCard,
-                                ),
-                                onTap: () => _showConfirmationDialog(
-                                  title: _SettingsStrings.dialogDeleteTitle,
-                                  content: _SettingsStrings.dialogDeleteContent,
-                                  confirmText: _SettingsStrings.buttonDelete,
-                                  isDestructive: true,
-                                  onConfirm: _handleDeleteAccount,
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      CupertinoIcons.trash,
-                                      size: _SettingsDimensions.iconSizeSmall,
-                                      color: _SettingsColors.deleteText,
-                                    ),
-                                    const SizedBox(
-                                      width: _SettingsDimensions.spacingSmall,
-                                    ),
-                                    Text(
-                                      _SettingsStrings.buttonDelete,
-                                      style: TextStyle(
-                                        color: _SettingsColors.deleteText,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize:
-                                            _SettingsDimensions.fontSizeBody,
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(
+                                        _SettingsDimensions.borderRadiusCard,
+                                      ),
+                                      onTap: () => _showConfirmationDialog(
+                                        title:
+                                            _SettingsStrings.dialogLogoutTitle,
+                                        content: _SettingsStrings
+                                            .dialogLogoutContent,
+                                        confirmText:
+                                            _SettingsStrings.buttonLogOut,
+                                        onConfirm: _handleLogout,
+                                      ),
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            CupertinoIcons.square_arrow_right,
+                                            size: _SettingsDimensions
+                                                .iconSizeSmall,
+                                            color: _SettingsColors.darkGreen,
+                                          ),
+                                          SizedBox(
+                                            width: _SettingsDimensions
+                                                .spacingSmall,
+                                          ),
+                                          Text(
+                                            _SettingsStrings.buttonLogOut,
+                                            style: TextStyle(
+                                              color: _SettingsColors.darkGreen,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: _SettingsDimensions
+                                                  .fontSizeBody,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ],
+                                  ),
                                 ),
-                              ),
+                                const SizedBox(
+                                  width: _SettingsDimensions.spacingLarge,
+                                ),
+                                Expanded(
+                                  child: Container(
+                                    height: _SettingsDimensions
+                                        .buttonHeightStandard,
+                                    decoration: BoxDecoration(
+                                      color: _SettingsColors.deleteBg,
+                                      borderRadius: BorderRadius.circular(
+                                        _SettingsDimensions.borderRadiusCard,
+                                      ),
+                                      border: Border.all(
+                                        color: _SettingsColors.deleteBorder,
+                                        width: _SettingsDimensions
+                                            .borderWidthStandard,
+                                      ),
+                                    ),
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(
+                                        _SettingsDimensions.borderRadiusCard,
+                                      ),
+                                      onTap: () => _showConfirmationDialog(
+                                        title:
+                                            _SettingsStrings.dialogDeleteTitle,
+                                        content: _SettingsStrings
+                                            .dialogDeleteContent,
+                                        confirmText:
+                                            _SettingsStrings.buttonDelete,
+                                        isDestructive: true,
+                                        onConfirm: _handleDeleteAccount,
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Icon(
+                                            CupertinoIcons.trash,
+                                            size: _SettingsDimensions
+                                                .iconSizeSmall,
+                                            color: _SettingsColors.deleteText,
+                                          ),
+                                          const SizedBox(
+                                            width: _SettingsDimensions
+                                                .spacingSmall,
+                                          ),
+                                          Text(
+                                            _SettingsStrings.buttonDelete,
+                                            style: TextStyle(
+                                              color: _SettingsColors.deleteText,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: _SettingsDimensions
+                                                  .fontSizeBody,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(
-                        height: _SettingsDimensions.spacingXXLarge,
+                            const SizedBox(
+                              height: _SettingsDimensions.spacingXXLarge,
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ],
@@ -1519,32 +1742,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildValueBadge(String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: _SettingsDimensions.paddingMedium,
-        vertical: _SettingsDimensions.paddingMicro,
-      ),
-      decoration: BoxDecoration(
-        color: _SettingsColors.darkGreen,
-        borderRadius: BorderRadius.circular(
-          _SettingsDimensions.borderRadiusBadge,
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(scale: animation, child: child),
+        );
+      },
+      child: Container(
+        key: ValueKey<String>(value),
+        padding: const EdgeInsets.symmetric(
+          horizontal: _SettingsDimensions.paddingMedium,
+          vertical: _SettingsDimensions.paddingMicro,
         ),
-        border: Border.all(
-          color: _SettingsColors.borderGreen,
-          width: _SettingsDimensions.borderWidthThin,
+        decoration: BoxDecoration(
+          color: _SettingsColors.darkGreen,
+          borderRadius: BorderRadius.circular(
+            _SettingsDimensions.borderRadiusBadge,
+          ),
+          border: Border.all(
+            color: _SettingsColors.borderGreen,
+            width: _SettingsDimensions.borderWidthThin,
+          ),
         ),
-      ),
-      child: Text(
-        value,
-        style: const TextStyle(
-          color: _SettingsColors.textWhite,
-          fontWeight: FontWeight.w500,
-          fontSize: _SettingsDimensions.fontSizeBadge,
+        child: Text(
+          value,
+          style: const TextStyle(
+            color: _SettingsColors.textWhite,
+            fontWeight: FontWeight.w500,
+            fontSize: _SettingsDimensions.fontSizeBadge,
+          ),
         ),
       ),
     );
   }
 
+  // --- FIXED CARD BUILDER TO RESOLVE LISTTILE EXCEPTION ---
   Widget _buildFloatingCard({required List<Widget> children}) {
     return Container(
       margin: const EdgeInsets.only(
@@ -1564,7 +1798,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ),
-      child: Column(children: children),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(
+          _SettingsDimensions.borderRadiusCard,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: children),
+      ),
     );
   }
 
