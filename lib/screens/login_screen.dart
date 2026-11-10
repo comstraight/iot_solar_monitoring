@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 import 'forgot_password_screen.dart';
 import 'account_setup.dart';
+import '../services/fcm_service.dart';
 
 class SlickLoginScreen extends StatefulWidget {
   const SlickLoginScreen({super.key});
@@ -113,19 +114,72 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavedEmail();
+    _checkExistingSession();
   }
 
-  Future<void> _loadSavedEmail() async {
+  Future<void> _checkExistingSession() async {
     final prefs = await SharedPreferences.getInstance();
     final savedEmail = prefs.getString(SlickLoginScreen.prefSavedEmail);
     final remember = prefs.getBool(SlickLoginScreen.prefRememberMe) ?? false;
 
-    if (remember && savedEmail != null && mounted) {
+    if (mounted) {
       setState(() {
-        _emailController.text = savedEmail;
-        _rememberMe = true;
+        _rememberMe = remember;
+        if (remember && savedEmail != null) {
+          _emailController.text = savedEmail;
+        }
       });
+    }
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser != null) {
+      if (remember) {
+        if (mounted) setState(() => _isLoading = true);
+        try {
+          // Initialize FCM service to request permissions, save FCM token to Firestore, and subscribe to topics
+          await FcmService.initialize();
+
+          bool isProfileIncomplete = true;
+          final userDocRef = FirebaseFirestore.instance
+              .collection(SlickLoginScreen.colUsers)
+              .doc(currentUser.uid);
+
+          final docSnap = await userDocRef.get();
+          if (docSnap.exists && docSnap.data() != null) {
+            final data = docSnap.data()!;
+            final name = data[SlickLoginScreen.fieldName];
+            if (name != null && name.toString().trim().isNotEmpty) {
+              isProfileIncomplete = false;
+            }
+          }
+
+          if (!mounted) return;
+
+          if (isProfileIncomplete) {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => const AccountSetupScreen(),
+              ),
+            );
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (context) => HomeScreen(
+                  currentPercentage: SlickLoginScreen.defaultHomePercentage
+                      .toInt(),
+                  cardCount: SlickLoginScreen.defaultHomeCardCount,
+                ),
+              ),
+            );
+          }
+        } catch (e) {
+          if (mounted) setState(() => _isLoading = false);
+        }
+      } else {
+        // Enforce logout if 'Remember Me' was not selected by the user
+        await FirebaseAuth.instance.signOut();
+      }
     }
   }
 
@@ -211,6 +265,9 @@ class _SlickLoginScreenState extends State<SlickLoginScreen> {
         }
 
         TextInput.finishAutofillContext();
+
+        // Initialize FCM service upon login to save fcmToken in Firestore users/{uid} and subscribe to topics
+        await FcmService.initialize();
 
         bool isProfileIncomplete = true;
 

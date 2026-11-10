@@ -44,8 +44,15 @@ class DegradationYearPoint {
 
 class MonitoringScreen extends StatefulWidget {
   final String? panelId;
+  final String? initialStatus;
+  final DateTime? initialLastUpdated;
 
-  const MonitoringScreen({super.key, this.panelId});
+  const MonitoringScreen({
+    super.key,
+    this.panelId,
+    this.initialStatus,
+    this.initialLastUpdated,
+  });
 
   // Theme Constants
   static const Color darkGreen = Color(0xFF20831B);
@@ -104,13 +111,14 @@ class MonitoringScreen extends StatefulWidget {
   static const String conditionBad = 'In bad condition';
   static const String statusActive = 'Active';
   static const String statusInactive = 'Inactive';
+  static const String statusOffline = 'Offline';
   static const String statusSensorProblems = 'Sensor Problems';
   static const String statusPanelRemoved = 'Panel Removed / Disconnected';
-  static const String sensorVoltage = 'Voltage Sensor (INA219)';
-  static const String sensorCurrent = 'Current Sensor (ACS712)';
-  static const String sensorLight = 'Light Sensor (LDR)';
-  static const String sensorTemperature = 'Temperature Sensor (DHT11/BME)';
-  static const String sensorHumidity = 'Humidity Sensor (DHT11/BME)';
+  static const String sensorVoltage = 'Voltage Sensor';
+  static const String sensorCurrent = 'Current Sensor';
+  static const String sensorLight = 'Light Sensor';
+  static const String sensorTemperature = 'Temperature Sensor';
+  static const String sensorHumidity = 'Humidity Sensor';
   static const String statusWorking = 'Working';
   static const String statusError = 'Error';
 
@@ -177,7 +185,12 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   bool _showPanelNameInAppBar = false;
 
   String _selectedCondition = MonitoringScreen.conditionGood;
-  String _selectedStatus = MonitoringScreen.statusActive;
+  late String _selectedStatus;
+
+  // OrangePi Offline Watchdog
+  DateTime? _lastTelemetryTimestamp;
+  Timer? _opiOfflineWatchdogTimer;
+  bool _isOpiOffline = false;
 
   // Live dynamic 5-sensor hardware health flags from Firestore
   bool _voltageSensorWorking = true;
@@ -207,11 +220,57 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedStatus = widget.initialStatus ?? MonitoringScreen.statusActive;
+    if (widget.initialLastUpdated != null) {
+      _lastTelemetryTimestamp = widget.initialLastUpdated;
+      final diffSec = DateTime.now()
+          .toUtc()
+          .difference(_lastTelemetryTimestamp!)
+          .inSeconds;
+      _isOpiOffline = diffSec > 75;
+      if (_isOpiOffline) {
+        _selectedStatus = MonitoringScreen.statusOffline;
+      }
+    }
+
     _activePageIndex = 0;
     _pageController = PageController(initialPage: _activePageIndex);
     _scrollController = ScrollController()..addListener(_onScroll);
 
+    _initStatusSubscription();
     _resolvePanelIdAndInit();
+    _startOpiOfflineWatchdog();
+  }
+
+  void _startOpiOfflineWatchdog() {
+    _opiOfflineWatchdogTimer?.cancel();
+    _opiOfflineWatchdogTimer = Timer.periodic(const Duration(seconds: 3), (
+      timer,
+    ) {
+      if (!mounted) return;
+      if (_lastTelemetryTimestamp != null) {
+        final diffSec = DateTime.now()
+            .toUtc()
+            .difference(_lastTelemetryTimestamp!)
+            .inSeconds;
+        final bool offlineNow = diffSec > 75;
+        if (offlineNow != _isOpiOffline) {
+          setState(() {
+            _isOpiOffline = offlineNow;
+            if (_isOpiOffline) {
+              _selectedStatus = MonitoringScreen.statusOffline;
+            }
+          });
+        }
+      } else {
+        if (!_isOpiOffline) {
+          setState(() {
+            _isOpiOffline = true;
+            _selectedStatus = MonitoringScreen.statusOffline;
+          });
+        }
+      }
+    });
   }
 
   Future<void> _resolvePanelIdAndInit() async {
@@ -242,7 +301,6 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     }
 
     if (!mounted) return;
-    _initStatusSubscription();
     _listenToAnalyticsFirestore();
   }
 
@@ -256,11 +314,40 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
           if (!mounted || !snapshot.exists || snapshot.data() == null) return;
 
           final data = snapshot.data() as Map<String, dynamic>;
+
+          // OrangePi heartbeat update check (Supports Timestamp, String, and Epoch int)
+          final lastUpdatedVal = data['last_updated'];
+          if (lastUpdatedVal != null) {
+            DateTime? parsed;
+            if (lastUpdatedVal is Timestamp) {
+              parsed = lastUpdatedVal.toDate().toUtc();
+            } else if (lastUpdatedVal is String && lastUpdatedVal.isNotEmpty) {
+              parsed = DateTime.tryParse(lastUpdatedVal)?.toUtc();
+            } else if (lastUpdatedVal is int) {
+              parsed = DateTime.fromMillisecondsSinceEpoch(
+                lastUpdatedVal,
+                isUtc: true,
+              );
+            }
+            if (parsed != null) {
+              _lastTelemetryTimestamp = parsed;
+              final diffSec = DateTime.now()
+                  .toUtc()
+                  .difference(_lastTelemetryTimestamp!)
+                  .inSeconds;
+              _isOpiOffline = diffSec > 75;
+            }
+          }
+
           final panels =
               data[MonitoringScreen.fieldPanels] as Map<String, dynamic>? ?? {};
 
-          if (panels.containsKey(_effectivePanelId)) {
-            final panelDoc = panels[_effectivePanelId] as Map<String, dynamic>;
+          final String targetId = panels.containsKey(widget.panelId)
+              ? widget.panelId!
+              : _effectivePanelId;
+
+          if (panels.containsKey(targetId)) {
+            final panelDoc = panels[targetId] as Map<String, dynamic>;
             final metadata =
                 panelDoc[MonitoringScreen.fieldMetadata]
                     as Map<String, dynamic>? ??
@@ -311,14 +398,16 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                     ?.toDouble() ??
                 MonitoringScreen.defaultCurrentEfficiencyRatio;
 
-            // Broadcast top status text
-            final determinedStatus = panelRemoved
+            // Broadcast top status text (Prioritizing OrangePi Offline)
+            final determinedStatus = _isOpiOffline
+                ? MonitoringScreen.statusOffline
+                : panelRemoved
                 ? MonitoringScreen.statusPanelRemoved
                 : failedSensors.isNotEmpty
                 ? MonitoringScreen.statusSensorProblems
                 : MonitoringScreen.statusActive;
 
-            // Strictly constrain bottom text to only 3 standard strings
+            // Strictly constrain bottom text to 3 standard strings without forcing "In bad condition" when panel is disconnected
             final explicitCondition =
                 panelDoc[MonitoringScreen.fieldCondition]?.toString() ??
                 diagnostics[MonitoringScreen.fieldCondition]?.toString();
@@ -328,7 +417,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                 explicitCondition == MonitoringScreen.conditionFair ||
                 explicitCondition == MonitoringScreen.conditionBad) {
               determinedCondition = explicitCondition!;
-            } else if (panelRemoved || currentEff < 0.60) {
+            } else if (currentEff < 0.60) {
               determinedCondition = MonitoringScreen.conditionBad;
             } else if (failedSensors.isNotEmpty || currentEff < 0.80) {
               determinedCondition = MonitoringScreen.conditionFair;
@@ -338,8 +427,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
 
             setState(() {
               _panelName =
-                  panelDoc[MonitoringScreen.fieldPanelName] ??
-                  _effectivePanelId;
+                  panelDoc[MonitoringScreen.fieldPanelName] ?? targetId;
               _panelRatedPowerW =
                   (metadata[MonitoringScreen.fieldRatedPowerW] as num?)
                       ?.toDouble() ??
@@ -824,6 +912,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
     _statusSubscription?.cancel();
     _analyticsSubscription?.cancel();
     _fadeTimer?.cancel();
+    _opiOfflineWatchdogTimer?.cancel();
     _pageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -920,9 +1009,11 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
         : [];
     final double persistentLatestEfficiency = _currentEfficiencyRatio;
 
-    final Color statusColor =
-        _selectedStatus == MonitoringScreen.statusPanelRemoved ||
-            _selectedStatus == MonitoringScreen.statusSensorProblems
+    // Status color mapping with grey for offline state
+    final Color statusColor = _selectedStatus == MonitoringScreen.statusOffline
+        ? Colors.grey
+        : _selectedStatus == MonitoringScreen.statusPanelRemoved ||
+              _selectedStatus == MonitoringScreen.statusSensorProblems
         ? Colors.red
         : _selectedStatus == MonitoringScreen.statusInactive
         ? Colors.grey
@@ -986,26 +1077,7 @@ class _MonitoringScreenState extends State<MonitoringScreen> {
                       ),
                     ),
                   ),
-                  GestureDetector(
-                    onTap: _showSensorStatusModal,
-                    child: Container(
-                      height: 48,
-                      width: 48,
-                      decoration: BoxDecoration(
-                        color: MonitoringScreen.cardBg,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: MonitoringScreen.appBarBorderGreen,
-                          width: 1.5,
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.power_settings_new_rounded,
-                        color: Colors.green,
-                        size: 22,
-                      ),
-                    ),
-                  ),
+                  const SizedBox(width: 48),
                 ],
               ),
             ),

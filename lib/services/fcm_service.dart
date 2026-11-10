@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'top_notification_service.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Background push notification handler executed by OS when app is terminated
+  // Ensure Firebase is initialized when background message handler runs in isolated background VM
+  await Firebase.initializeApp();
 }
 
 class FcmService {
@@ -17,7 +19,14 @@ class FcmService {
     // 1. Set background messaging handler
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // 2. Request user notification permissions
+    // 2. Enable foreground notification presentation options for heads-up alert banners
+    await _messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    // 3. Request user notification permissions
     NotificationSettings settings = await _messaging.requestPermission(
       alert: true,
       badge: true,
@@ -27,18 +36,18 @@ class FcmService {
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional) {
-      // 3. Subscribe to global broadcast topic
+      // 4. Subscribe to global broadcast topic
       await _messaging.subscribeToTopic('all_users');
 
-      // 4. Save device FCM token to current logged-in user document
-      await _updateUserFcmToken();
+      // 5. Save device FCM token to current logged-in user document
+      await updateUserFcmToken();
 
-      // 5. Listen for token refreshes
+      // 6. Listen for token refreshes
       _messaging.onTokenRefresh.listen((newToken) {
         _saveTokenToFirestore(newToken);
       });
 
-      // 6. Handle foreground push notifications
+      // 7. Handle foreground push notifications
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         final notification = message.notification;
         final data = message.data;
@@ -58,7 +67,7 @@ class FcmService {
         }
       });
 
-      // 7. Handle notification tap when app is opened from background state
+      // 8. Handle notification tap when app is opened from background state
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         final panelId = message.data['panelId'];
         if (panelId != null && panelId.isNotEmpty) {
@@ -71,9 +80,14 @@ class FcmService {
     }
   }
 
-  static Future<void> _updateUserFcmToken() async {
+  static Future<void> updateUserFcmToken() async {
     try {
       String? token = await _messaging.getToken();
+
+      print("----------------------------------");
+      print("DEVICE FCM TOKEN: $token");
+      print("----------------------------------");
+
       if (token != null) {
         await _saveTokenToFirestore(token);
       }

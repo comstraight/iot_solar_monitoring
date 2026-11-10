@@ -225,6 +225,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // Real-time listener for user's claimed sites from aggregators collection
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sitesSubscription;
   Map<String, String> _connectedSitesMap = {};
+  Set<String> _userDetectedPanels = {};
+  Map<String, String> _panelToAggregatorMap = {};
 
   List<String> _userPairedDevices = [];
 
@@ -264,6 +266,9 @@ class _HomeScreenState extends State<HomeScreen> {
         .listen((snapshot) {
           if (mounted) {
             final Map<String, String> siteMap = {};
+            final Set<String> detectedPanels = {};
+            final Map<String, String> panelToAgg = {};
+
             for (int i = 0; i < snapshot.docs.length; i++) {
               final doc = snapshot.docs[i];
               final data = doc.data();
@@ -275,9 +280,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   ? rawName
                   : 'Site ${i + 1}';
               siteMap[doc.id] = siteName;
+
+              final List<dynamic> panels =
+                  data['detected_panels'] as List<dynamic>? ?? [];
+              for (var p in panels) {
+                final pStr = p.toString();
+                if (pStr.trim().isNotEmpty) {
+                  detectedPanels.add(pStr);
+                  panelToAgg[pStr] = doc.id;
+                }
+              }
             }
             setState(() {
               _connectedSitesMap = siteMap;
+              _userDetectedPanels = detectedPanels;
+              _panelToAggregatorMap = panelToAgg;
             });
           }
         });
@@ -600,27 +617,58 @@ class _HomeScreenState extends State<HomeScreen> {
             final String? currentUid = FirebaseAuth.instance.currentUser?.uid;
             final SystemJsonMap userPanelsMap = {};
 
+            // Process telemetry panels from system_status/current
             rawPanelsMap.forEach((pId, pData) {
               if (pData is SystemJsonMap) {
                 final String? ownerUid =
                     pData[_AppFirestore.fieldOwnerUid] ??
                     pData[_AppFirestore.fieldOwnerUidCamel];
-                final String? aggregatorId = pData['aggregator_id']?.toString();
+                final String? aggregatorId =
+                    pData['aggregator_id']?.toString() ??
+                    _panelToAggregatorMap[pId];
 
                 final bool isOwner =
                     (currentUid != null &&
                     ownerUid != null &&
                     ownerUid == currentUid);
+
                 final bool isClaimedByConnectedSite =
                     aggregatorId != null &&
-                    _connectedSitesMap.containsKey(aggregatorId);
+                    _connectedSitesMap.keys.any(
+                      (k) => k.toLowerCase() == aggregatorId.toLowerCase(),
+                    );
+
+                final bool isDetectedInClaimedSite =
+                    _userDetectedPanels.contains(pId) ||
+                    _panelToAggregatorMap.containsKey(pId);
+
                 final bool isPaired = _userPairedDevices.contains(pId);
 
-                if (isOwner || isClaimedByConnectedSite || isPaired) {
+                if (isOwner ||
+                    isClaimedByConnectedSite ||
+                    isDetectedInClaimedSite ||
+                    isPaired) {
                   userPanelsMap[pId] = pData;
                 }
               }
             });
+
+            // Synthesize fallback panel entries for detected panels not yet in telemetryData
+            for (final pId in _userDetectedPanels) {
+              if (!userPanelsMap.containsKey(pId)) {
+                final String aggId = _panelToAggregatorMap[pId] ?? '';
+                final String groupName =
+                    _connectedSitesMap[aggId] ?? 'Aggregator';
+                userPanelsMap[pId] = {
+                  'panel_id': pId,
+                  'panel_name': '$pId - $groupName',
+                  'aggregator_id': aggId,
+                  'owner_uid': currentUid,
+                  'sensor_data': {'output_power_w': 0.0},
+                  'power_kwh': 0.0,
+                };
+              }
+            }
 
             final SystemJsonMap userGroupsMap = {};
 
@@ -667,7 +715,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: _AppDimensions.spacingSmall),
                 _buildLiveMetricsRow(peakOutput, estimatedSavings),
                 _buildMonitoringHeader(userGroupsMap),
-                _buildPanelsList(userPanelsMap, userGroupsMap),
+                _buildPanelsList(userPanelsMap, userGroupsMap, telemetryData),
               ],
             );
           },
@@ -920,7 +968,11 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildPanelsList(SystemJsonMap panelsMap, SystemJsonMap groupsMap) {
+  Widget _buildPanelsList(
+    SystemJsonMap panelsMap,
+    SystemJsonMap groupsMap,
+    SystemJsonMap telemetryData,
+  ) {
     if (panelsMap.isEmpty) {
       return const Padding(
         padding: EdgeInsets.symmetric(
@@ -1012,6 +1064,30 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    // Evaluate preloaded status from system telemetry timestamps (Supports Timestamp, String, and Epoch int)
+    final lastUpdatedVal = telemetryData['last_updated'];
+    DateTime? lastUpdatedTime;
+    bool isOpiOffline = true;
+    if (lastUpdatedVal != null) {
+      if (lastUpdatedVal is Timestamp) {
+        lastUpdatedTime = lastUpdatedVal.toDate().toUtc();
+      } else if (lastUpdatedVal is String && lastUpdatedVal.isNotEmpty) {
+        lastUpdatedTime = DateTime.tryParse(lastUpdatedVal)?.toUtc();
+      } else if (lastUpdatedVal is int) {
+        lastUpdatedTime = DateTime.fromMillisecondsSinceEpoch(
+          lastUpdatedVal,
+          isUtc: true,
+        );
+      }
+      if (lastUpdatedTime != null) {
+        final diffSec = DateTime.now()
+            .toUtc()
+            .difference(lastUpdatedTime)
+            .inSeconds;
+        isOpiOffline = diffSec > 75;
+      }
+    }
+
     List<Widget> children = [];
 
     for (var groupEntry in groupEntries) {
@@ -1071,11 +1147,10 @@ class _HomeScreenState extends State<HomeScreen> {
               panelData['id']?.toString() ??
               'panel_$panelIndex';
 
-          // Use real-time panel name from Firestore, falling back to claimed/unclaimed format
           final String displayPanelName =
               panelData['panel_name']?.toString() ??
               panelData['name']?.toString() ??
-              'Panel_$panelIndex - $groupName';
+              '$panelId - $groupName';
 
           final SystemJsonMap? sensorData =
               panelData[_AppFirestore.fieldSensorData] as SystemJsonMap?;
@@ -1092,12 +1167,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         0.0)
                     .toDouble();
 
+          final bool panelRemoved = panelData['panel_removed'] == true;
+          final String preloadedStatus = isOpiOffline
+              ? MonitoringScreen.statusOffline
+              : (panelRemoved
+                    ? MonitoringScreen.statusPanelRemoved
+                    : MonitoringScreen.statusActive);
+
           children.add(
             _SwipeablePanelCard(
               key: ValueKey<String>('swipe_panel_$panelId'),
               panelId: panelId,
               title: displayPanelName,
               value: value,
+              preloadedStatus: preloadedStatus,
+              lastUpdatedTime: lastUpdatedTime,
               onRename: () => _showRenamePanelDialog(panelId, displayPanelName),
             ),
           );
@@ -1128,22 +1212,35 @@ class _HomeScreenState extends State<HomeScreen> {
                 groupData[_AppFirestore.fieldName] ??
                 '')
             .toString();
+
+    final String panelId =
+        panelData['panel_id']?.toString() ?? panelData['id']?.toString() ?? '';
     final String? panelGroup = panelData[_AppFirestore.fieldGroup]?.toString();
     final String? panelGroupName = panelData[_AppFirestore.fieldGroupName]
         ?.toString();
-    final String? panelAggregatorId = panelData['aggregator_id']?.toString();
+    final String? panelAggregatorId =
+        panelData['aggregator_id']?.toString() ??
+        _panelToAggregatorMap[panelId];
 
-    if (panelAggregatorId != null && panelAggregatorId == groupKey) {
+    if (panelAggregatorId != null &&
+        panelAggregatorId.toLowerCase() == groupKey.toLowerCase()) {
       return true;
     }
 
-    if (panelGroup != null && panelGroup.isNotEmpty && panelGroup == groupKey) {
+    if (panelGroup != null &&
+        panelGroup.isNotEmpty &&
+        panelGroup.toLowerCase() == groupKey.toLowerCase()) {
       return true;
     }
 
     if (groupName.isNotEmpty) {
-      if (panelGroup == groupName) return true;
-      if (panelGroupName == groupName) return true;
+      if (panelGroup?.toLowerCase() == groupName.toLowerCase()) return true;
+      if (panelGroupName?.toLowerCase() == groupName.toLowerCase()) return true;
+    }
+
+    if (_connectedSitesMap.length == 1 &&
+        _connectedSitesMap.containsKey(groupKey)) {
+      return true;
     }
 
     return false;
@@ -1766,6 +1863,8 @@ class _SwipeablePanelCard extends StatefulWidget {
   final String panelId;
   final String title;
   final double value;
+  final String preloadedStatus;
+  final DateTime? lastUpdatedTime;
   final VoidCallback onRename;
 
   const _SwipeablePanelCard({
@@ -1773,6 +1872,8 @@ class _SwipeablePanelCard extends StatefulWidget {
     required this.panelId,
     required this.title,
     required this.value,
+    required this.preloadedStatus,
+    this.lastUpdatedTime,
     required this.onRename,
   });
 
@@ -1890,8 +1991,11 @@ class _SwipeablePanelCardState extends State<_SwipeablePanelCard> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                MonitoringScreen(panelId: widget.panelId),
+                            builder: (context) => MonitoringScreen(
+                              panelId: widget.panelId,
+                              initialStatus: widget.preloadedStatus,
+                              initialLastUpdated: widget.lastUpdatedTime,
+                            ),
                           ),
                         );
                       }
